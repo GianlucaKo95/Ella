@@ -77,6 +77,16 @@ notifications_log
 
 RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte (status='published') Shifts/Backpläne (inkl. seiner eigenen Back-Truppe); `admin` sieht/schreibt alles.
 
+## 6a. Monatlicher Verfügbarkeits-Stichtag
+Mitarbeiter müssen ihre Verfügbarkeit für den **kompletten nächsten Monat** bis zu einem vom
+Admin gesetzten Stichtag eingetragen haben (Tabelle `availability_deadlines`, ein Eintrag pro
+Monat). "Komplett" heißt: für alle relevanten Wochentage (Mi–So) liegt ein wiederkehrender
+Eintrag (kann/kann nicht) vor — Ausnahmen für einzelne Daten kommen zusätzlich obendrauf.
+Erst wenn das erfüllt ist, kann der Mitarbeiter aktiv "einreichen"
+(`availability_submissions`, ein Eintrag pro Mitarbeiter + Monat). Der Admin sieht in der
+Planungsansicht, wer für den kommenden Monat schon eingereicht hat und wer nicht — als
+Grundlage, um vor dem Stichtag nachzuhaken.
+
 ## 7. Kalender-Export (ICS)
 Pro Mitarbeiter ein ICS-Feed (Edge Function, per token abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
 

@@ -38,11 +38,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="app-shell">
-        <h1>🍰 Ella</h1>
-        <p>
-          Hallo {employee.name}! ({employee.role === "admin" ? "Admin" : "Mitarbeiter"}){" "}
-          <button onClick={() => supabase.auth.signOut()}>Abmelden</button>
-        </p>
+        <div className="brand-header">
+          <img src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
+          <h1>Ella</h1>
+          <div className="who">
+            {employee.name} · {employee.role === "admin" ? "Admin" : "Mitarbeiterin"}
+            <br />
+            <button onClick={() => supabase.auth.signOut()}>Abmelden</button>
+          </div>
+        </div>
         <NavBar employee={employee} />
         <Routes>
           <Route path="/verfuegbarkeit" element={<Availability employee={employee} />} />

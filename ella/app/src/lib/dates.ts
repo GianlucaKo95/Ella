@@ -32,3 +32,24 @@ export function bakeDays(anyDate: Date): Date[] {
 }
 
 export const DAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+
+// Relevante Wochentage fürs Café: Mi (Backen) bis So (letzter Öffnungstag) — 0=Mo Schema
+export const RELEVANT_DAYS = [2, 3, 4, 5, 6];
+
+export const MONTH_NAMES = [
+  "Januar", "Februar", "März", "April", "Mai", "Juni",
+  "Juli", "August", "September", "Oktober", "November", "Dezember"
+];
+
+// 1. des nächsten Monats (relativ zu `today`)
+export function nextMonthStart(today: Date): Date {
+  return new Date(today.getFullYear(), today.getMonth() + 1, 1);
+}
+
+export function monthLabel(monthStart: Date): string {
+  return `${MONTH_NAMES[monthStart.getMonth()]} ${monthStart.getFullYear()}`;
+}
+
+export function toMonthStr(monthStart: Date): string {
+  return toDateStr(monthStart).slice(0, 7) + "-01";
+}

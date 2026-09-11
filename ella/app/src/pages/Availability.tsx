@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase, type Employee } from "../lib/supabase";
+import { DAY_NAMES, RELEVANT_DAYS, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
 
-const DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+const DAYS = DAY_NAMES;
 
 type AvailabilityEntry = {
   id: string;
@@ -19,20 +20,33 @@ export function Availability({ employee }: { employee: Employee }) {
   const [loading, setLoading] = useState(true);
   const [newDate, setNewDate] = useState("");
   const [newDateAvailable, setNewDateAvailable] = useState(true);
+  const [deadline, setDeadline] = useState<string | null>(null);
+  const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+
+  const nextMonth = nextMonthStart(new Date());
+  const nextMonthStr = toMonthStr(nextMonth);
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase
-      .from("availability_entries")
-      .select("*")
-      .eq("employee_id", employee.id)
-      .order("day_of_week", { ascending: true });
-    setEntries((data as AvailabilityEntry[]) || []);
+    const [entriesRes, deadlineRes, submissionRes] = await Promise.all([
+      supabase.from("availability_entries").select("*").eq("employee_id", employee.id).order("day_of_week"),
+      supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
+      supabase
+        .from("availability_submissions")
+        .select("submitted_at")
+        .eq("employee_id", employee.id)
+        .eq("month", nextMonthStr)
+        .maybeSingle()
+    ]);
+    setEntries((entriesRes.data as AvailabilityEntry[]) || []);
+    setDeadline(deadlineRes.data?.deadline ?? null);
+    setSubmittedAt(submissionRes.data?.submitted_at ?? null);
     setLoading(false);
   }
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee.id]);
 
   const recurring = DAYS.map((_, idx) =>
@@ -73,9 +87,43 @@ export function Availability({ employee }: { employee: Employee }) {
 
   const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
 
+  const isComplete = RELEVANT_DAYS.every((dow) => recurring[dow] !== undefined);
+  const isLate = deadline ? new Date() > new Date(deadline + "T23:59:59") : false;
+
+  async function submitMonth() {
+    await supabase
+      .from("availability_submissions")
+      .upsert({ employee_id: employee.id, month: nextMonthStr }, { onConflict: "employee_id,month" });
+    load();
+  }
+
   return (
     <div>
       <h2>Meine Verfügbarkeit</h2>
+
+      <div className={`card ${submittedAt ? "" : isLate ? "card-attention" : ""}`}>
+        <h3>Verfügbarkeit für {monthLabel(nextMonth)}</h3>
+        {deadline && (
+          <p style={{ margin: "0 0 8px" }}>
+            Stichtag: <strong>{new Date(deadline).toLocaleDateString("de-DE")}</strong>
+            {isLate && !submittedAt && <span style={{ color: "var(--attention, crimson)" }}> — überfällig!</span>}
+          </p>
+        )}
+        {submittedAt ? (
+          <p>✅ Eingereicht am {new Date(submittedAt).toLocaleDateString("de-DE")}.</p>
+        ) : (
+          <>
+            <p>
+              {isComplete
+                ? "Alle relevanten Tage (Mi–So) sind unten eingetragen — bereit zum Einreichen."
+                : "Bitte für alle Tage von Mittwoch bis Sonntag unten \"kann\"/\"kann nicht\" auswählen, bevor du einreichst."}
+            </p>
+            <button onClick={submitMonth} disabled={!isComplete}>
+              Verfügbarkeit für {monthLabel(nextMonth)} einreichen
+            </button>
+          </>
+        )}
+      </div>
 
       <div className="card">
         <h3>Dauerhaft (jede Woche)</h3>

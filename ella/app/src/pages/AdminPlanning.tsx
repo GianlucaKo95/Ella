@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { serviceDays, bakeDays, toDateStr, isoDayOfWeek, DAY_NAMES } from "../lib/dates";
+import {
+  serviceDays,
+  bakeDays,
+  toDateStr,
+  isoDayOfWeek,
+  DAY_NAMES,
+  nextMonthStart,
+  monthLabel,
+  toMonthStr
+} from "../lib/dates";
 
 type EmployeeRow = { id: string; name: string; active: boolean; bake_team_id: string | null };
 type AvailabilityRow = {
@@ -46,6 +55,11 @@ export function AdminPlanning() {
   const [cakeItems, setCakeItems] = useState<CakeItem[]>([]);
   const [bakeEntries, setBakeEntries] = useState<BakeEntryRow[]>([]);
   const [bakeTeams, setBakeTeams] = useState<BakeTeam[]>([]);
+  const [deadline, setDeadline] = useState<string>("");
+  const [submissions, setSubmissions] = useState<{ employee_id: string; submitted_at: string }[]>([]);
+
+  const nextMonth = nextMonthStart(new Date());
+  const nextMonthStr = toMonthStr(nextMonth);
 
   const anchorDate = useMemo(() => new Date(anchor + "T00:00:00"), [anchor]);
   const svcDays = useMemo(() => serviceDays(anchorDate), [anchorDate]);
@@ -54,14 +68,16 @@ export function AdminPlanning() {
   const bkDateStrs = bkDays.map(toDateStr);
 
   async function loadAll() {
-    const [emp, avail, req, sh, cakes, bakes, teams] = await Promise.all([
+    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes] = await Promise.all([
       supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
       supabase.from("shifts").select("*").in("date", svcDateStrs),
       supabase.from("cake_items").select("*"),
       supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
-      supabase.from("bake_teams").select("*")
+      supabase.from("bake_teams").select("*"),
+      supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
+      supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr)
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
@@ -70,6 +86,16 @@ export function AdminPlanning() {
     setCakeItems((cakes.data as CakeItem[]) || []);
     setBakeEntries((bakes.data as BakeEntryRow[]) || []);
     setBakeTeams((teams.data as BakeTeam[]) || []);
+    setDeadline(deadlineRes.data?.deadline ?? "");
+    setSubmissions(submissionsRes.data || []);
+  }
+
+  async function saveDeadline() {
+    if (!deadline) return;
+    await supabase
+      .from("availability_deadlines")
+      .upsert({ month: nextMonthStr, deadline }, { onConflict: "month" });
+    loadAll();
   }
 
   useEffect(() => {
@@ -142,6 +168,42 @@ export function AdminPlanning() {
   return (
     <div>
       <h2>Planung (Admin)</h2>
+
+      <div className="card">
+        <h3>Verfügbarkeits-Stichtag für {monthLabel(nextMonth)}</h3>
+        <p>
+          <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />{" "}
+          <button onClick={saveDeadline}>Stichtag speichern</button>
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Mitarbeiter</th>
+              <th>Eingereicht?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((emp) => {
+              const sub = submissions.find((s) => s.employee_id === emp.id);
+              return (
+                <tr key={emp.id}>
+                  <td>{emp.name}</td>
+                  <td>
+                    {sub ? (
+                      <span className="badge published">
+                        ✓ {new Date(sub.submitted_at).toLocaleDateString("de-DE")}
+                      </span>
+                    ) : (
+                      <span className="badge draft">ausstehend</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
       <p>
         Woche mit:{" "}
         <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} />

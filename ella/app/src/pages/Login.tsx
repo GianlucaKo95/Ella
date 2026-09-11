@@ -18,7 +18,10 @@ export function Login() {
 
   return (
     <div className="app-shell">
-      <h1>🍰 Ella</h1>
+      <div className="brand-header">
+        <img src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
+        <h1>Ella</h1>
+      </div>
       <div className="card">
         <form onSubmit={handleSubmit}>
           <p>

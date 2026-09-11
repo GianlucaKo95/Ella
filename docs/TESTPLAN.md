@@ -15,6 +15,16 @@
 | V3 | Mitarbeiter A versucht, Verfügbarkeit von Mitarbeiter B zu lesen/ändern (direkter API-Call mit eigenem Token) | Von RLS verweigert (403 / leere Ergebnismenge) |
 | V4 | Admin liest Verfügbarkeiten aller Mitarbeiter | Erfolgreich, vollständige Liste |
 
+### 2.1a Verfügbarkeits-Stichtag (monatlich)
+| # | Szenario | Erwartung |
+|---|---|---|
+| D1 | Mitarbeiter hat nicht für alle Tage Mi–So des nächsten Monats einen wiederkehrenden Eintrag | "Einreichen"-Button bleibt deaktiviert |
+| D2 | Mitarbeiter hat alle Tage Mi–So eingetragen | "Einreichen"-Button aktiv, Klick erzeugt `availability_submissions`-Eintrag mit Zeitstempel |
+| D3 | Mitarbeiter reicht ein zweites Mal für denselben Monat ein | Kein Duplikat (unique employee_id+month), zweiter Versuch aktualisiert nichts sichtbar Neues |
+| D4 | Heutiges Datum liegt nach dem Stichtag, Mitarbeiter hat nicht eingereicht | Eigene Ansicht zeigt "überfällig"; Admin-Ansicht zeigt ihn als "ausstehend" |
+| D5 | Admin ändert den Stichtag für den nächsten Monat | Neuer Stichtag gilt sofort für alle Mitarbeiter-Ansichten |
+| D6 | Mitarbeiter versucht, `availability_submissions` für einen Kollegen einzutragen (direkter API-Call) | RLS verweigert |
+
 ### 2.2 Dienstplan (Service)
 | # | Szenario | Erwartung |
 |---|---|---|
@@ -55,6 +65,7 @@
 
 ## 3. Akzeptanzkriterien für "fertig" (Definition of Done, MVP)
 - [ ] Mitarbeiter kann wiederkehrende Verfügbarkeit + Ausnahmen selbst pflegen.
+- [ ] Mitarbeiter kann Verfügbarkeit für den nächsten Monat erst einreichen, wenn sie für Mi–So vollständig ist; Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag.
 - [ ] Admin sieht beim Planen pro Tag den Personalbedarf und die Verfügbarkeit der Mitarbeiter.
 - [ ] Veröffentlichen einer Woche macht Dienst- *und* Backplan gleichzeitig für betroffene Mitarbeiter sichtbar.
 - [ ] Jeder Mitarbeiter kann seinen Plan per ICS abonnieren.
