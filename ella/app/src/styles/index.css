@@ -1,0 +1,77 @@
+:root {
+  --ella-brown: #7a4a2b;
+  --ella-cream: #fdf6ec;
+  --ella-accent: #c97b3d;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--ella-cream);
+  color: #2a1a10;
+}
+
+.app-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.nav-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.nav-bar a {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--ella-brown);
+  background: white;
+  border: 1px solid #e8d9c8;
+}
+
+.nav-bar a.active {
+  background: var(--ella-brown);
+  color: white;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+th, td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+  font-size: 0.9rem;
+}
+
+button, select, input {
+  font-size: 0.95rem;
+}
+
+.card {
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #e8d9c8;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: #eee;
+}
+
+.badge.published { background: #d7f0d0; color: #2a5c1a; }
+.badge.draft { background: #f0e0c0; color: #7a4a00; }
