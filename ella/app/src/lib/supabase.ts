@@ -36,14 +36,19 @@ export type Employee = {
 
 export type LoginName = { id: string; name: string; has_account: boolean };
 
-// Namensliste für den Login-Bildschirm (wie bei Wizzo: Namen antippen statt
-// E-Mail tippen; ein Passwort gibt es trotzdem). Läuft vor dem Login, daher
-// über eine security-definer Funktion statt über eine RLS-Policy auf die
-// volle employees-Tabelle.
+// Namensliste, dient dem Login-Bildschirm dazu, den eingetippten Namen auf
+// eine employee-id + has_account aufzulösen (kein E-Mail-Feld, stattdessen
+// Name + Passwort). Läuft vor dem Login, daher über eine security-definer
+// Funktion statt über eine RLS-Policy auf die volle employees-Tabelle.
 export async function fetchLoginNames(): Promise<LoginName[]> {
   const { data, error } = await supabase.rpc("list_login_names");
   if (error) return [];
   return (data as LoginName[]) || [];
+}
+
+export function findLoginName(names: LoginName[], typedName: string): LoginName | null {
+  const needle = typedName.trim().toLowerCase();
+  return names.find((n) => n.name.trim().toLowerCase() === needle) || null;
 }
 
 // Synthetische, nie versendete Adresse – ersetzt den "Benutzernamen" für

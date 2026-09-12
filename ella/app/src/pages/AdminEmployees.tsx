@@ -44,9 +44,9 @@ export function AdminEmployees() {
     <div>
       <h2>Mitarbeiter</h2>
       <p style={{ fontSize: "0.85rem", color: "#666" }}>
-        Neuer Mitarbeiter erscheint sofort auf dem Login-Bildschirm zur Auswahl — beim ersten
-        Antippen des Namens legt die Person selbst ihr Passwort fest, danach ist das
-        Login-Konto (auth_user_id) verknüpft.
+        Neuer Mitarbeiter kann sich sofort mit seinem Namen einloggen — beim ersten Login legt
+        die Person selbst ihr Passwort fest, danach ist das Login-Konto (auth_user_id)
+        verknüpft.
       </p>
       <div className="card">
         <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" />{" "}

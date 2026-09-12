@@ -16,7 +16,7 @@ Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme werden digitalisiert:
 - **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, Ingress), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
 
 ## 4. Kernmodule
-1. **Auth & Mitarbeiterverwaltung** (Login wie bei Wizzo: Name aus einer Liste antippen + eigenes Passwort, keine E-Mail; Rollen: `admin`, `employee`)
+1. **Auth & Mitarbeiterverwaltung** (Login wie bei Wizzo: Name + eigenes Passwort in normalen Textfeldern, keine E-Mail; Rollen: `admin`, `employee`)
 2. **Verfügbarkeiten** (dauerhaft wiederkehrend + Ausnahmen je Datum, monatlicher Einreichungs-Stichtag)
 3. **Schichtplanung** (Admin erstellt Plan auf Basis der Verfügbarkeiten, Veröffentlichung)
 4. **Kuchenplanung** (Backliste pro Tag, Mengen, Zuordnung zu einer Back-Truppe)
@@ -142,10 +142,11 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 `availability_deadlines` (ein Stichtag pro Monat) + `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (§8/§9) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
 
 ## 12. Login mit Name + Passwort, ohne E-Mail (wie bei Wizzo)
-Login-Bildschirm zeigt alle aktiven Mitarbeiternamen (`list_login_names()`, security-definer
-Funktion, vor dem Login aufrufbar, liefert je Mitarbeiter auch `has_account`). Antippen des
-eigenen Namens fragt das Passwort ab. Erster Login (`has_account = false`): Passwort wird
-selbst festgelegt, die Edge Function `set-password` legt dafür per Service-Role-Key das
+Login-Bildschirm ist ein normales Formular mit zwei Textfeldern, Name und Passwort — kein
+E-Mail-Feld. Der eingetippte Name wird gegen `list_login_names()` aufgelöst (security-definer
+Funktion, vor dem Login aufrufbar, liefert je aktivem Mitarbeiter `id`, `name`, `has_account`).
+Erster Login (`has_account = false`): Passwort wird beim Absenden gleich mit festgelegt, die
+Edge Function `set-password` legt dafür per Service-Role-Key das
 Auth-Konto an (`admin.createUser`, verknüpft `employees.auth_user_id`) — mit einer aus der
 `employee.id` abgeleiteten, nie versendeten Adresse anstelle einer echten E-Mail, da Supabase
 Auth ein E-Mail-Feld erwartet. Jeder spätere Login läuft ganz regulär über
