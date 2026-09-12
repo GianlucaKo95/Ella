@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchAppSettings, supabase } from "../lib/supabase";
 import {
-  serviceDays,
-  bakeDays,
+  monthServiceDays,
+  monthBakeDays,
   toDateStr,
   isoDayOfWeek,
   DAY_NAMES,
@@ -10,7 +10,9 @@ import {
   monthLabel,
   toMonthStr,
   billingPeriod,
-  formatDayMonth
+  formatDayMonth,
+  addMonths,
+  monthStartOf
 } from "../lib/dates";
 
 type EmployeeRow = { id: string; name: string; active: boolean; bake_team_id: string | null };
@@ -49,7 +51,7 @@ type BakeEntryRow = {
 type BakeTeam = { id: string; name: string };
 
 export function AdminPlanning() {
-  const [anchor, setAnchor] = useState(toDateStr(new Date()));
+  const [planMonth, setPlanMonth] = useState(() => monthStartOf(new Date()));
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
   const [requirements, setRequirements] = useState<StaffingReq[]>([]);
@@ -66,9 +68,11 @@ export function AdminPlanning() {
   const nextMonthStr = toMonthStr(nextMonth);
   const previewPeriod = useMemo(() => billingPeriod(new Date(), billingStartDay), [billingStartDay]);
 
-  const anchorDate = useMemo(() => new Date(anchor + "T00:00:00"), [anchor]);
-  const svcDays = useMemo(() => serviceDays(anchorDate), [anchorDate]);
-  const bkDays = useMemo(() => bakeDays(anchorDate), [anchorDate]);
+  // Die Planung erfolgt bewusst immer für den ganzen Kalendermonat — unabhängig
+  // vom admin-einstellbaren Abrechnungszeitraum, der nur die Stundenanzeige
+  // der Mitarbeiter im Kalender betrifft, nicht was geplant werden muss.
+  const svcDays = useMemo(() => monthServiceDays(planMonth), [planMonth]);
+  const bkDays = useMemo(() => monthBakeDays(planMonth), [planMonth]);
   const svcDateStrs = svcDays.map(toDateStr);
   const bkDateStrs = bkDays.map(toDateStr);
 
@@ -114,7 +118,7 @@ export function AdminPlanning() {
     loadAll();
     fetchAppSettings().then((s) => setBillingStartDay(s.billing_period_start_day));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor]);
+  }, [planMonth]);
 
   function availabilityFor(employeeId: string, date: Date, dateStr: string): "kann" | "kann nicht" | "unbekannt" {
     const dow = isoDayOfWeek(date);
@@ -172,7 +176,7 @@ export function AdminPlanning() {
     loadAll();
   }
 
-  async function publishWeek() {
+  async function publishMonth() {
     await supabase.from("shifts").update({ status: "published" }).in("date", svcDateStrs).eq("status", "draft");
     await supabase.from("bake_plan_entries").update({ status: "published" }).in("date", bkDateStrs).eq("status", "draft");
     loadAll();
@@ -246,13 +250,26 @@ export function AdminPlanning() {
         </table>
       </div>
 
-      <p>
-        Woche mit:{" "}
-        <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} />
+      <div className="cal-header" style={{ marginTop: "1.2rem" }}>
+        <button className="ghost" onClick={() => setPlanMonth((m) => addMonths(m, -1))}>
+          ‹
+        </button>
+        <h3 style={{ margin: 0 }}>{monthLabel(planMonth)}</h3>
+        <div className="nav-btns">
+          <button className="ghost" onClick={() => setPlanMonth(monthStartOf(new Date()))}>
+            Heute
+          </button>
+          <button className="ghost" onClick={() => setPlanMonth((m) => addMonths(m, 1))}>
+            ›
+          </button>
+        </div>
+      </div>
+      <p style={{ fontSize: "0.72rem", color: "var(--ink-soft)", margin: "0 0 0.8rem" }}>
+        Geplant wird immer der ganze Kalendermonat (nicht der Abrechnungszeitraum oben).
       </p>
-      <button onClick={publishWeek}>📣 Plan & Backplan dieser Woche veröffentlichen</button>
+      <button onClick={publishMonth}>📣 Plan & Backplan für {monthLabel(planMonth)} veröffentlichen</button>
 
-      <h3>Dienstplan (Do–So)</h3>
+      <h3>Dienstplan (Do–So, {monthLabel(planMonth)})</h3>
       {svcDays.map((d, i) => {
         const dateStr = svcDateStrs[i];
         const dow = isoDayOfWeek(d);
@@ -313,7 +330,7 @@ export function AdminPlanning() {
         );
       })}
 
-      <h3>Backplan (Mi/Do/Fr, außerhalb Öffnungszeiten)</h3>
+      <h3>Backplan (Mi/Do/Fr, außerhalb Öffnungszeiten, {monthLabel(planMonth)})</h3>
       {bkDays.map((d, i) => {
         const dateStr = bkDateStrs[i];
         const dow = isoDayOfWeek(d);

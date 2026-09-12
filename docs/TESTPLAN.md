@@ -89,6 +89,14 @@
 | E2 | Mitarbeiter ruft danach den Kalender-Screen auf | "Voraussichtliche Stunden" und die Zeitraum-Anzeige basieren auf dem neuen Start-Tag |
 | E3 | Mitarbeiter versucht, `app_settings` per direktem API-Call zu ändern | RLS verweigert (`app_settings_update_admin` nur für `admin`) |
 | E4 | Ein Wert außerhalb 1–28 wird eingetragen | DB-Constraint lehnt ab (bewusst auf 28 begrenzt, damit der Start-Tag in jedem Monat existiert) |
+| E5 | Admin ändert den Abrechnungszeitraum-Start-Tag | Die Admin-Planung (Dienst-/Backplan) zeigt weiterhin denselben vollen Kalendermonat — Anzahl und Auswahl der zu planenden Tage ändern sich **nicht** |
+
+### 2.2a Monatsplanung (Admin)
+| # | Szenario | Erwartung |
+|---|---|---|
+| M1 | Admin öffnet die Planung | Alle Service-Tage (Do–So) und Back-Tage (Mi/Do/Fr) des aktuell angezeigten Kalendermonats werden aufgelistet, nicht nur eine einzelne Woche |
+| M2 | Admin navigiert zum nächsten/vorherigen Monat | Liste aktualisiert sich auf den neu gewählten Kalendermonat |
+| M3 | Admin klickt "Plan & Backplan veröffentlichen" | Alle `draft`-Einträge des gesamten angezeigten Monats werden `published`, nicht nur einer Woche |
 
 ### 2.6 PWA / Offline
 | # | Szenario | Erwartung |

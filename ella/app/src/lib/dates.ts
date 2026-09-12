@@ -31,6 +31,29 @@ export function bakeDays(anyDate: Date): Date[] {
   return weekDates(anyDate).slice(2, 5);
 }
 
+// Alle Tage des Kalendermonats, der `monthStart` (1. des Monats) enthält.
+export function daysInMonth(monthStart: Date): Date[] {
+  const year = monthStart.getFullYear();
+  const month = monthStart.getMonth();
+  const count = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: count }, (_, i) => new Date(year, month, i + 1));
+}
+
+// Service-Tage (Do–So) des ganzen Kalendermonats — für die Monatsplanung
+// (bewusst immer der volle Kalendermonat, unabhängig vom admin-einstellbaren
+// Abrechnungszeitraum, der nur für die Stundenanzeige der Mitarbeiter gilt).
+export function monthServiceDays(monthStart: Date): Date[] {
+  return daysInMonth(monthStart).filter((d) => isoDayOfWeek(d) >= 3);
+}
+
+// Back-Tage (Mi/Do/Fr) des ganzen Kalendermonats.
+export function monthBakeDays(monthStart: Date): Date[] {
+  return daysInMonth(monthStart).filter((d) => {
+    const dow = isoDayOfWeek(d);
+    return dow >= 2 && dow <= 4;
+  });
+}
+
 export const DAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 
 // Relevante Wochentage fürs Café: Mi (Backen) bis So (letzter Öffnungstag) — 0=Mo Schema

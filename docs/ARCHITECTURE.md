@@ -98,7 +98,9 @@ Die früheren eigenständigen Screens "Verfügbarkeit", "Plan" und "Backplan" wu
 
 ## 6d. Admin-Einstellungen (app_settings)
 Singleton-Tabelle `app_settings` (eine feste Zeile, `id = true`) für global vom Admin/Chef einstellbare Parameter, lesbar für alle eingeloggten Nutzer, schreibbar nur für `admin`:
-- `billing_period_start_day` (1–28): an welchem Tag des Monats der Abrechnungszeitraum beginnt. `1` = klassischer Kalendermonat (Default). Wird in der Kalender-Ansicht der Mitarbeiter für die "voraussichtlichen Stunden" verwendet und ist in der Admin-Planung unter "Einstellungen" editierbar, inkl. Live-Vorschau des aktuell daraus resultierenden Zeitraums.
+- `billing_period_start_day` (1–28): an welchem Tag des Monats der Abrechnungszeitraum beginnt. `1` = klassischer Kalendermonat (Default). Wird **ausschließlich** in der Kalender-Ansicht der Mitarbeiter für die "voraussichtlichen Stunden" verwendet und ist in der Admin-Planung unter "Einstellungen" editierbar, inkl. Live-Vorschau des aktuell daraus resultierenden Zeitraums.
+
+**Wichtige Abgrenzung**: Der Abrechnungszeitraum betrifft ausschließlich die Stundenanzeige im Mitarbeiter-Kalender (für die Lohnabrechnung). Die eigentliche **Schicht-/Backplanung durch den Admin erfolgt immer für den vollen Kalendermonat** (`monthServiceDays`/`monthBakeDays` in `lib/dates.ts`), unabhängig vom eingestellten Abrechnungszeitraum — die beiden Zeiträume sind bewusst entkoppelt.
 
 ## 8. Offene Architekturfragen (für nächste Iteration)
 - Der Abrechnungszeitraum ist jetzt admin-einstellbar (§6d) — weitere fachlich fixe Annahmen (Öffnungszeiten Do–So, Backtage Mi/Do/Fr, genau 3 Back-Truppen) sind bewusst weiterhin fest im Code/Schema verankert, da sie laut Auftrag unveränderlich sind. Falls sich das ändern sollte, wären sie nach demselben Muster (eigene `app_settings`-Felder) konfigurierbar zu machen.
