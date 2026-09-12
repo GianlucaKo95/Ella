@@ -149,6 +149,11 @@ export function AdminPlanning() {
     loadAll();
   }
 
+  async function setEmployeeTeam(employeeId: string, teamId: string | null) {
+    await supabase.from("employees").update({ bake_team_id: teamId }).eq("id", employeeId);
+    loadAll();
+  }
+
   useEffect(() => {
     fetchAppSettings().then((s) => {
       setBillingStartDay(s.billing_period_start_day);
@@ -305,26 +310,57 @@ export function AdminPlanning() {
 
       <div className="card">
         <h3>Back-Truppen</h3>
-        <table>
-          <tbody>
-            {bakeTeams.map((t) => (
-              <tr key={t.id}>
-                <td>
-                  <input
-                    defaultValue={t.name}
-                    onBlur={(e) => e.target.value.trim() && e.target.value !== t.name && renameBakeTeam(t.id, e.target.value.trim())}
-                  />
-                </td>
-                <td>
-                  <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeTeam(t.id)}>
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p style={{ display: "flex", gap: "0.5rem" }}>
+        {bakeTeams.map((t) => {
+          const members = employees.filter((e) => e.bake_team_id === t.id);
+          const candidates = employees.filter((e) => e.bake_team_id !== t.id);
+          return (
+            <div key={t.id} style={{ borderTop: "1px solid var(--border)", paddingTop: "0.7rem", marginTop: "0.7rem" }}>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <input
+                  style={{ flex: 1 }}
+                  defaultValue={t.name}
+                  onBlur={(e) => e.target.value.trim() && e.target.value !== t.name && renameBakeTeam(t.id, e.target.value.trim())}
+                />
+                <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeTeam(t.id)}>
+                  ✕
+                </button>
+              </div>
+              <div style={{ margin: "0.5rem 0 0" }}>
+                {members.length === 0 && (
+                  <p style={{ fontSize: "0.72rem", color: "var(--ink-soft)", margin: 0 }}>Noch keine Mitarbeiter zugeordnet.</p>
+                )}
+                {members.map((m) => (
+                  <div className="row" key={m.id}>
+                    <span className="day">{m.name}</span>
+                    <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => setEmployeeTeam(m.id, null)}>
+                      entfernen
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {candidates.length > 0 && (
+                <p style={{ marginTop: "0.5rem" }}>
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && setEmployeeTeam(e.target.value, t.id)}
+                  >
+                    <option value="">+ Mitarbeiter hinzufügen –</option>
+                    {candidates.map((e) => {
+                      const currentTeam = bakeTeams.find((bt) => bt.id === e.bake_team_id);
+                      return (
+                        <option key={e.id} value={e.id}>
+                          {e.name}
+                          {currentTeam ? ` (bisher ${currentTeam.name})` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </p>
+              )}
+            </div>
+          );
+        })}
+        <p style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
           <input
             style={{ flex: 1 }}
             placeholder="Name der neuen Truppe"

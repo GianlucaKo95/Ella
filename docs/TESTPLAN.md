@@ -36,6 +36,9 @@
 | C6 | Admin legt eine vierte Back-Truppe an | Erscheint sofort in allen Truppen-Auswahlfeldern (Mitarbeiter-Profil, Backplan) |
 | C7 | Admin löscht eine Back-Truppe, der noch Mitarbeiter zugeordnet sind | `bake_team_id` dieser Mitarbeiter wird `null` (FK `on delete set null`); Admin muss sie danach neu zuordnen |
 | C8 | Mitarbeiter versucht, `app_settings`/`bake_teams` per direktem API-Call zu ändern | RLS verweigert (nur `admin`) |
+| C9 | Admin fügt in der Truppen-Karte einen noch nicht zugeordneten Mitarbeiter zu Truppe A hinzu | `employees.bake_team_id` wird gesetzt; Mitarbeiter erscheint sofort unter Truppe A, nicht mehr in der Auswahl der anderen Truppen |
+| C10 | Admin wählt in Truppe B einen Mitarbeiter, der aktuell Truppe A zugeordnet ist | Mitarbeiter wird zu Truppe B umgehängt (nicht doppelt zugeordnet), verschwindet aus Truppe A |
+| C11 | Admin klickt "entfernen" bei einem Truppenmitglied | `bake_team_id` wird `null`; Mitarbeiter taucht danach bei jeder Truppe wieder in der Auswahlliste auf |
 
 ### 2.2 Dienstplan (Service)
 | # | Szenario | Erwartung |
