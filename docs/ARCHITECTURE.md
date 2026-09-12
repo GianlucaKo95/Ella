@@ -23,10 +23,10 @@ Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme sollen digitalisiert w
 4. **Kuchenplanung** (Backliste pro Tag/Woche, Mengen, ggf. Zuordnung "wer backt was")
 5. **Benachrichtigungen** (Plan veröffentlicht → Push/HA-Notify an betroffene Mitarbeiter)
 
-## 5. Rahmendaten (fachlich fix)
-- Café-Öffnungszeiten (Theke/Service): **Donnerstag–Sonntag** → nur an diesen Tagen gibt es `shifts`.
-- Backen: **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten** (an Do/Fr also vor Öffnung bzw. nach Schließung, nicht parallel zum Service).
-- Es gibt **3 feste Back-Truppen**; jede Back-Schicht (Mi/Do/Fr) wird einer Truppe zugeordnet, nicht einzelnen Personen direkt.
+## 5. Rahmendaten
+- Café-Öffnungszeiten (Theke/Service): standardmäßig **Donnerstag–Sonntag** → nur an diesen Tagen gibt es `shifts`. Seit §6e vom Admin einstellbar (`app_settings.service_days`).
+- Backen: standardmäßig **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten**. Seit §6e vom Admin einstellbar (`app_settings.bake_days`), z. B. um weniger Backtage festzulegen, wenn weniger gebacken werden muss.
+- Back-Truppen: standardmäßig **3**, aber als Zeilen in `bake_teams` jetzt über die Admin-UI anlegbar/umbenennbar/löschbar (§6e) — die Anzahl ist also kein fixer Wert mehr, sondern ergibt sich aus der Tabelle.
 
 ## 6. Datenmodell (Entwurf)
 
@@ -100,7 +100,13 @@ Die früheren eigenständigen Screens "Verfügbarkeit", "Plan" und "Backplan" wu
 Singleton-Tabelle `app_settings` (eine feste Zeile, `id = true`) für global vom Admin/Chef einstellbare Parameter, lesbar für alle eingeloggten Nutzer, schreibbar nur für `admin`:
 - `billing_period_start_day` (1–28): an welchem Tag des Monats der Abrechnungszeitraum beginnt. `1` = klassischer Kalendermonat (Default). Wird **ausschließlich** in der Kalender-Ansicht der Mitarbeiter für die "voraussichtlichen Stunden" verwendet und ist in der Admin-Planung unter "Einstellungen" editierbar, inkl. Live-Vorschau des aktuell daraus resultierenden Zeitraums.
 
-**Wichtige Abgrenzung**: Der Abrechnungszeitraum betrifft ausschließlich die Stundenanzeige im Mitarbeiter-Kalender (für die Lohnabrechnung). Die eigentliche **Schicht-/Backplanung durch den Admin erfolgt immer für den vollen Kalendermonat** (`monthServiceDays`/`monthBakeDays` in `lib/dates.ts`), unabhängig vom eingestellten Abrechnungszeitraum — die beiden Zeiträume sind bewusst entkoppelt.
+**Wichtige Abgrenzung**: Der Abrechnungszeitraum betrifft ausschließlich die Stundenanzeige im Mitarbeiter-Kalender (für die Lohnabrechnung). Die eigentliche **Schicht-/Backplanung durch den Admin erfolgt immer für den vollen Kalendermonat** (`monthDaysMatching` in `lib/dates.ts`, gefüttert mit den einstellbaren Service-/Back-Tagen aus §6e), unabhängig vom eingestellten Abrechnungszeitraum — die beiden Zeiträume sind bewusst entkoppelt.
+
+## 6e. Einstellbare Geschäftsregeln (Service-/Back-Tage, Back-Truppen)
+Was in §5 früher fachlich fix war, ist jetzt admin-einstellbar, für den Fall dass sich z. B. der Backbedarf ändert:
+- `app_settings.service_days` / `app_settings.bake_days` (jeweils `smallint[]`, 0=Mo..6=So, nicht leer): an welchen Wochentagen es Service bzw. Backen gibt. Editierbar in der Admin-Planung unter "Einstellungen" über Wochentags-Toggle-Buttons; wirkt sich sofort auf die Monatsplanung (§6c) und auf die vom Mitarbeiter vor dem Einreichen geforderten Tage (`relevantDays` = Vereinigung aus beiden Arrays, ersetzt die früher feste Mi–So-Annahme) aus.
+- Da ein Datums-`CHECK`-Constraint in Postgres nicht gegen eine andere Tabelle prüfen kann, validieren `BEFORE INSERT/UPDATE`-Trigger (`check_shift_service_day`, `check_bake_plan_day`) neue/geänderte `shifts`/`bake_plan_entries`-Daten zur Laufzeit gegen die aktuellen `app_settings`-Werte, statt der alten festen `isodow`-Checks.
+- `bake_teams`: weiterhin eine normale Tabelle, jetzt aber mit CRUD-UI (anlegen/umbenennen/löschen) in der Admin-Planung — die "3 festen Truppen" sind nur noch der Startzustand (Seed-Daten), keine Code-Annahme mehr.
 
 ## 8. Offene Architekturfragen (für nächste Iteration)
 - Der Abrechnungszeitraum ist jetzt admin-einstellbar (§6d) — weitere fachlich fixe Annahmen (Öffnungszeiten Do–So, Backtage Mi/Do/Fr, genau 3 Back-Truppen) sind bewusst weiterhin fest im Code/Schema verankert, da sie laut Auftrag unveränderlich sind. Falls sich das ändern sollte, wären sie nach demselben Muster (eigene `app_settings`-Felder) konfigurierbar zu machen.

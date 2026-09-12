@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase, type Employee } from "../lib/supabase";
-import { DAY_NAMES, RELEVANT_DAYS, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
+import { DAY_NAMES, RELEVANT_DAYS, relevantDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
 
 const DAYS = DAY_NAMES;
 
@@ -26,9 +26,14 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [name, setName] = useState(employee.name);
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
+  const [requiredDays, setRequiredDays] = useState<number[]>(RELEVANT_DAYS);
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
+
+  useEffect(() => {
+    fetchAppSettings().then((s) => setRequiredDays(relevantDays(s.service_days, s.bake_days)));
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -104,7 +109,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
 
   const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
 
-  const isComplete = RELEVANT_DAYS.every((dow) => recurring[dow] !== undefined);
+  const isComplete = requiredDays.every((dow) => recurring[dow] !== undefined);
   const isLate = deadline ? new Date() > new Date(deadline + "T23:59:59") : false;
 
   async function submitMonth() {
@@ -150,8 +155,8 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
           <>
             <p>
               {isComplete
-                ? "Alle relevanten Tage (Mi–So) sind unten eingetragen — bereit zum Einreichen."
-                : "Bitte für alle Tage von Mittwoch bis Sonntag unten \"kann\"/\"kann nicht\" auswählen, bevor du einreichst."}
+                ? `Alle relevanten Tage (${requiredDays.map((d) => DAYS[d]).join(", ")}) sind unten eingetragen — bereit zum Einreichen.`
+                : `Bitte für alle Tage (${requiredDays.map((d) => DAYS[d]).join(", ")}) unten "kann"/"kann nicht" auswählen, bevor du einreichst.`}
             </p>
             <button onClick={submitMonth} disabled={!isComplete}>
               Verfügbarkeit für {monthLabel(nextMonth)} einreichen

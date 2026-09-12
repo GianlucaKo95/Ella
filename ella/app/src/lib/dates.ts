@@ -39,25 +39,26 @@ export function daysInMonth(monthStart: Date): Date[] {
   return Array.from({ length: count }, (_, i) => new Date(year, month, i + 1));
 }
 
-// Service-Tage (Do–So) des ganzen Kalendermonats — für die Monatsplanung
-// (bewusst immer der volle Kalendermonat, unabhängig vom admin-einstellbaren
-// Abrechnungszeitraum, der nur für die Stundenanzeige der Mitarbeiter gilt).
-export function monthServiceDays(monthStart: Date): Date[] {
-  return daysInMonth(monthStart).filter((d) => isoDayOfWeek(d) >= 3);
-}
-
-// Back-Tage (Mi/Do/Fr) des ganzen Kalendermonats.
-export function monthBakeDays(monthStart: Date): Date[] {
-  return daysInMonth(monthStart).filter((d) => {
-    const dow = isoDayOfWeek(d);
-    return dow >= 2 && dow <= 4;
-  });
+// Tage des Kalendermonats, deren Wochentag (0=Mo..6=So) in `allowedDays` liegt
+// — für die Monatsplanung (bewusst immer der volle Kalendermonat, unabhängig
+// vom admin-einstellbaren Abrechnungszeitraum, der nur die Stundenanzeige der
+// Mitarbeiter betrifft). `allowedDays` kommt aus den admin-einstellbaren
+// app_settings (service_days/bake_days) statt fest codiert zu sein.
+export function monthDaysMatching(monthStart: Date, allowedDays: number[]): Date[] {
+  return daysInMonth(monthStart).filter((d) => allowedDays.includes(isoDayOfWeek(d)));
 }
 
 export const DAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 
-// Relevante Wochentage fürs Café: Mi (Backen) bis So (letzter Öffnungstag) — 0=Mo Schema
+// Fallback, falls app_settings noch nicht geladen sind (Mi–So, Default-Konfiguration).
 export const RELEVANT_DAYS = [2, 3, 4, 5, 6];
+
+// Wochentage, für die ein Mitarbeiter vor dem Einreichen eine wiederkehrende
+// Verfügbarkeit braucht: Vereinigung aus den admin-einstellbaren Service- und
+// Back-Tagen (0=Mo..6=So), statt fest Mi–So anzunehmen.
+export function relevantDays(serviceDays: number[], bakeDays: number[]): number[] {
+  return Array.from(new Set([...serviceDays, ...bakeDays])).sort((a, b) => a - b);
+}
 
 export const MONTH_NAMES = [
   "Januar", "Februar", "März", "April", "Mai", "Juni",

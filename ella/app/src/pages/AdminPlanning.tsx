@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchAppSettings, supabase } from "../lib/supabase";
 import {
-  monthServiceDays,
-  monthBakeDays,
+  monthDaysMatching,
   toDateStr,
   isoDayOfWeek,
   DAY_NAMES,
@@ -62,7 +61,10 @@ export function AdminPlanning() {
   const [deadline, setDeadline] = useState<string>("");
   const [submissions, setSubmissions] = useState<{ employee_id: string; submitted_at: string }[]>([]);
   const [billingStartDay, setBillingStartDay] = useState(1);
+  const [serviceDays, setServiceDaysState] = useState<number[]>([3, 4, 5, 6]);
+  const [bakeDays, setBakeDaysState] = useState<number[]>([2, 3, 4]);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [newTeamName, setNewTeamName] = useState("");
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -70,9 +72,11 @@ export function AdminPlanning() {
 
   // Die Planung erfolgt bewusst immer für den ganzen Kalendermonat — unabhängig
   // vom admin-einstellbaren Abrechnungszeitraum, der nur die Stundenanzeige
-  // der Mitarbeiter im Kalender betrifft, nicht was geplant werden muss.
-  const svcDays = useMemo(() => monthServiceDays(planMonth), [planMonth]);
-  const bkDays = useMemo(() => monthBakeDays(planMonth), [planMonth]);
+  // der Mitarbeiter im Kalender betrifft, nicht was geplant werden muss. Welche
+  // Wochentage überhaupt Service- bzw. Back-Tage sind, kommt jetzt aus den
+  // admin-einstellbaren Einstellungen statt fest Do-So/Mi-Fr zu sein.
+  const svcDays = useMemo(() => monthDaysMatching(planMonth, serviceDays), [planMonth, serviceDays]);
+  const bkDays = useMemo(() => monthDaysMatching(planMonth, bakeDays), [planMonth, bakeDays]);
   const svcDateStrs = svcDays.map(toDateStr);
   const bkDateStrs = bkDays.map(toDateStr);
 
@@ -114,11 +118,49 @@ export function AdminPlanning() {
     setSavingSettings(false);
   }
 
+  function toggleDay(list: number[], setList: (v: number[]) => void, day: number) {
+    setList(list.includes(day) ? list.filter((d) => d !== day) : [...list, day].sort((a, b) => a - b));
+  }
+
+  async function saveDayRules() {
+    if (serviceDays.length === 0 || bakeDays.length === 0) return;
+    setSavingSettings(true);
+    await supabase
+      .from("app_settings")
+      .update({ service_days: serviceDays, bake_days: bakeDays })
+      .eq("id", true);
+    setSavingSettings(false);
+    loadAll();
+  }
+
+  async function addBakeTeam() {
+    if (!newTeamName.trim()) return;
+    await supabase.from("bake_teams").insert({ name: newTeamName.trim() });
+    setNewTeamName("");
+    loadAll();
+  }
+
+  async function renameBakeTeam(id: string, name: string) {
+    await supabase.from("bake_teams").update({ name }).eq("id", id);
+  }
+
+  async function deleteBakeTeam(id: string) {
+    await supabase.from("bake_teams").delete().eq("id", id);
+    loadAll();
+  }
+
+  useEffect(() => {
+    fetchAppSettings().then((s) => {
+      setBillingStartDay(s.billing_period_start_day);
+      setServiceDaysState(s.service_days);
+      setBakeDaysState(s.bake_days);
+    });
+  }, []);
+
   useEffect(() => {
     loadAll();
-    fetchAppSettings().then((s) => setBillingStartDay(s.billing_period_start_day));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planMonth]);
+  }, [planMonth, serviceDays, bakeDays]);
 
   function availabilityFor(employeeId: string, date: Date, dateStr: string): "kann" | "kann nicht" | "unbekannt" {
     const dow = isoDayOfWeek(date);
@@ -213,6 +255,84 @@ export function AdminPlanning() {
             Kalendermonat.
           </p>
         </div>
+
+        <div className="field" style={{ marginTop: "1rem" }}>
+          <label>An diesen Tagen ist Service (Dienstplan)</label>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {DAY_NAMES.map((name, idx) => (
+              <button
+                key={name}
+                type="button"
+                className={serviceDays.includes(idx) ? "" : "ghost"}
+                style={{ padding: "0.4rem 0.6rem", fontSize: "0.68rem" }}
+                onClick={() => toggleDay(serviceDays, setServiceDaysState, idx)}
+              >
+                {name.slice(0, 2)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field" style={{ marginTop: "0.8rem" }}>
+          <label>An diesen Tagen wird gebacken (Backplan, außerhalb Öffnungszeiten)</label>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {DAY_NAMES.map((name, idx) => (
+              <button
+                key={name}
+                type="button"
+                className={bakeDays.includes(idx) ? "" : "ghost"}
+                style={{ padding: "0.4rem 0.6rem", fontSize: "0.68rem" }}
+                onClick={() => toggleDay(bakeDays, setBakeDaysState, idx)}
+              >
+                {name.slice(0, 2)}
+              </button>
+            ))}
+          </div>
+          {(serviceDays.length === 0 || bakeDays.length === 0) && (
+            <p style={{ margin: "0.4rem 0 0", fontSize: "0.72rem", color: "var(--attention)" }}>
+              Mindestens ein Tag muss jeweils ausgewählt sein.
+            </p>
+          )}
+          <button
+            style={{ marginTop: "0.6rem" }}
+            disabled={savingSettings || serviceDays.length === 0 || bakeDays.length === 0}
+            onClick={saveDayRules}
+          >
+            Tage speichern
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Back-Truppen</h3>
+        <table>
+          <tbody>
+            {bakeTeams.map((t) => (
+              <tr key={t.id}>
+                <td>
+                  <input
+                    defaultValue={t.name}
+                    onBlur={(e) => e.target.value.trim() && e.target.value !== t.name && renameBakeTeam(t.id, e.target.value.trim())}
+                  />
+                </td>
+                <td>
+                  <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeTeam(t.id)}>
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ display: "flex", gap: "0.5rem" }}>
+          <input
+            style={{ flex: 1 }}
+            placeholder="Name der neuen Truppe"
+            value={newTeamName}
+            onChange={(e) => setNewTeamName(e.target.value)}
+          />
+          <button className="ghost" onClick={addBakeTeam}>+ Truppe anlegen</button>
+        </p>
       </div>
 
       <div className="card">
@@ -269,7 +389,9 @@ export function AdminPlanning() {
       </p>
       <button onClick={publishMonth}>📣 Plan & Backplan für {monthLabel(planMonth)} veröffentlichen</button>
 
-      <h3>Dienstplan (Do–So, {monthLabel(planMonth)})</h3>
+      <h3>
+        Dienstplan ({serviceDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")}, {monthLabel(planMonth)})
+      </h3>
       {svcDays.map((d, i) => {
         const dateStr = svcDateStrs[i];
         const dow = isoDayOfWeek(d);
@@ -330,7 +452,10 @@ export function AdminPlanning() {
         );
       })}
 
-      <h3>Backplan (Mi/Do/Fr, außerhalb Öffnungszeiten, {monthLabel(planMonth)})</h3>
+      <h3>
+        Backplan ({bakeDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")}, außerhalb Öffnungszeiten,{" "}
+        {monthLabel(planMonth)})
+      </h3>
       {bkDays.map((d, i) => {
         const dateStr = bkDateStrs[i];
         const dow = isoDayOfWeek(d);

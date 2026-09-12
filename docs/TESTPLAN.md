@@ -25,10 +25,22 @@
 | D5 | Admin ändert den Stichtag für den nächsten Monat | Neuer Stichtag gilt sofort für alle Mitarbeiter-Ansichten |
 | D6 | Mitarbeiter versucht, `availability_submissions` für einen Kollegen einzutragen (direkter API-Call) | RLS verweigert |
 
+### 2.1f Einstellbare Service-/Back-Tage & Back-Truppen (Admin)
+| # | Szenario | Erwartung |
+|---|---|---|
+| C1 | Admin deaktiviert in den Einstellungen einen bisherigen Service-Tag (z. B. Sonntag) und speichert | Dieser Wochentag taucht in der Monatsplanung (Dienstplan) nicht mehr auf; bereits existierende Schichten an diesem Tag bleiben unverändert bestehen |
+| C2 | Admin reduziert die Back-Tage auf nur noch einen Tag pro Woche | Backplan-Monatsplanung zeigt nur noch diesen einen Wochentag je Woche; Mitarbeiter müssen für das Einreichen nur noch für die jetzt relevanten Tage (Service ∪ Backen) eine Verfügbarkeit eintragen |
+| C3 | Direkter Insert eines `shifts`-Eintrags an einem laut `app_settings.service_days` nicht erlaubten Wochentag (API-Call, nicht über UI) | Trigger `check_shift_service_day` lehnt mit Exception ab |
+| C4 | Direkter Insert eines `bake_plan_entries`-Eintrags an einem laut `app_settings.bake_days` nicht erlaubten Wochentag | Trigger `check_bake_plan_day` lehnt ab |
+| C5 | `service_days`/`bake_days` auf ein leeres Array gesetzt (API-Call) | DB-Constraint (`array_length(...) > 0`) lehnt ab |
+| C6 | Admin legt eine vierte Back-Truppe an | Erscheint sofort in allen Truppen-Auswahlfeldern (Mitarbeiter-Profil, Backplan) |
+| C7 | Admin löscht eine Back-Truppe, der noch Mitarbeiter zugeordnet sind | `bake_team_id` dieser Mitarbeiter wird `null` (FK `on delete set null`); Admin muss sie danach neu zuordnen |
+| C8 | Mitarbeiter versucht, `app_settings`/`bake_teams` per direktem API-Call zu ändern | RLS verweigert (nur `admin`) |
+
 ### 2.2 Dienstplan (Service)
 | # | Szenario | Erwartung |
 |---|---|---|
-| S1 | Admin legt Schicht für einen Montag an (Insert direkt gegen DB versucht) | DB-Constraint `service_days_only` lehnt ab (nur Do–So erlaubt) |
+| S1 | Admin legt Schicht für einen laut aktuellen Einstellungen nicht erlaubten Wochentag an (Insert direkt gegen DB versucht) | Trigger `check_shift_service_day` lehnt ab (siehe C3) |
 | S2 | Admin legt Spätschicht mit `role_tag='kueche'` an | DB-Constraint `role_tag_only_frueh` lehnt ab |
 | S3 | Admin weist Mitarbeiter zu, der laut Verfügbarkeit an dem Tag nicht kann | UI warnt/zeigt "kann nicht" in der Auswahl — **keine** harte Sperre (bewusste Entscheidung: Admin kann übersteuern, z. B. bei kurzfristigem Einspringen) |
 | S4 | Admin veröffentlicht die Woche | Alle `draft`-Schichten dieser Woche werden `published`; Mitarbeiter sehen sie danach im Dienstplan |
@@ -38,7 +50,7 @@
 ### 2.3 Backplan
 | # | Szenario | Erwartung |
 |---|---|---|
-| B1 | Admin legt Backeintrag für einen Montag an | DB-Constraint `bake_days_only` lehnt ab (nur Mi/Do/Fr) |
+| B1 | Admin legt Backeintrag für einen laut aktuellen Einstellungen nicht erlaubten Wochentag an | Trigger `check_bake_plan_day` lehnt ab (siehe C4) |
 | B2 | Mitarbeiter aus Truppe 2 ruft veröffentlichten Backplan ab | Sieht nur Einträge mit `bake_team_id` = Truppe 2 |
 | B3 | Mitarbeiter aus Truppe 2 ruft Backplan-Einträge von Truppe 1 direkt per ID ab | RLS verweigert |
 | B4 | Backeintrag ohne zugewiesene Truppe wird veröffentlicht | Für Mitarbeiter nicht sichtbar (kein `bake_team_id`-Match) — Admin muss vor Veröffentlichung zuweisen; **Akzeptanzkriterium: UI soll das vor dem Veröffentlichen sichtbar machen** (offener Punkt, siehe §4) |
