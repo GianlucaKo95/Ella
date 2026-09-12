@@ -52,6 +52,8 @@
 | K2 | Mitarbeiter navigiert zu einem anderen Monat | Grid aktualisiert sich auf den neu gewählten Monat; die Stundenstatistik bleibt unverändert (bezieht sich auf den Abrechnungszeitraum, §2.6, nicht auf den angezeigten Monat) |
 | K3 | Mitarbeiter öffnet Detailansicht eines Tages mit eigener Schicht, klickt "Tauschen" | Kollegen-Auswahl erscheint; nach Auswahl + "Anbieten" wird eine `shift_swap_requests`-Zeile angelegt (siehe §2.15) |
 | K4 | Für eine Schicht besteht bereits eine offene Tauschanfrage | Statt "Tauschen" erscheint der Hinweis "Tauschanfrage gestellt – wartet auf Antwort", kein erneutes Anbieten möglich |
+| K5 | Mitarbeiter wählt beim Tauschen einen Kollegen, der laut eigener Angabe an dem Tag "kann nicht" eingetragen hat | Warnhinweis erscheint, "Anbieten" bleibt trotzdem klickbar (keine harte Sperre) |
+| H7 | Mitarbeiter öffnet Home | "Meine Woche" zeigt alle 7 Tage ab heute, je Tag entweder die eigene Schicht oder "frei"; bei einer eigenen Schicht ist direkt ein "Tauschen"-Button vorhanden, ohne in den Kalender wechseln zu müssen |
 | PR1 | Mitarbeiter öffnet Profil | Name-Feld, die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten und Ausnahmen sind alle auf einem Screen verfügbar |
 
 ### 2.6 Admin-Einstellungen: Abrechnungszeitraum
@@ -148,6 +150,17 @@
 | T6 | Admin bestätigt eine angenommene Anfrage | `shifts.employee_id` wird auf B umgeschrieben, Anfrage-Status wird `confirmed` |
 | T7 | Admin lehnt eine angenommene Anfrage ab | Status wird `declined`, `shifts.employee_id` bleibt bei A |
 | T8 | Mitarbeiter C (weder A noch B) versucht, die Anfrage per API-Call zu lesen | RLS verweigert |
+| T9 | Mitarbeiter versucht per direktem API-Call, die `availability_entries` eines Kollegen zu lesen | RLS verweigert weiterhin (nur eigene oder Admin) — der Verfügbarkeits-Hinweis beim Tauschen läuft ausschließlich über die Funktion `is_colleague_available`, die nur ein Bool liefert |
+| T10 | `is_colleague_available` wird für einen Tag ohne jeden Verfügbarkeits-Eintrag des Kollegen aufgerufen | Liefert `true` (unbekannt blockiert nicht) |
+
+### 2.16 Änderungsprotokoll (Admin)
+| # | Szenario | Erwartung |
+|---|---|---|
+| L1 | Admin ändert nach dem Veröffentlichen den zugewiesenen Mitarbeiter einer Schicht | `plan_audit_log` erhält einen Eintrag mit altem und neuem Mitarbeiter; erscheint in der Admin-Planung unter "Änderungsprotokoll" für den betroffenen Monat |
+| L2 | Admin löscht eine bereits veröffentlichte Schicht | Eintrag im Protokoll vermerkt die Löschung |
+| L3 | Admin ändert einen **draft**-Eintrag (noch nicht veröffentlicht) | Kein Protokolleintrag — normale Planungsarbeit wird bewusst nicht mitprotokolliert |
+| L4 | Admin ändert Menge/Truppe eines veröffentlichten Backeintrags | Eintrag im Protokoll mit altem/neuem Wert |
+| L5 | Mitarbeiter versucht, `plan_audit_log` per direktem API-Call zu lesen | RLS verweigert (nur `admin`) |
 
 ## 3. Akzeptanzkriterien für "fertig" (Definition of Done, MVP)
 - [ ] Mitarbeiter kann wiederkehrende Verfügbarkeit + Ausnahmen selbst pflegen.
@@ -159,7 +172,8 @@
 - [ ] Alle Regelverstöße (falscher Wochentag für Schicht/Backen laut aktuellen Einstellungen, Rollen-Tag in Spätschicht) werden von der Datenbank abgelehnt, nicht nur vom UI verhindert.
 - [ ] Admin kann Service-/Back-Tage, Abrechnungszeitraum und Back-Truppen ohne Code-Änderung anpassen.
 - [ ] Mitarbeiter werden beim Veröffentlichen eines Plans und bei neuen Ankündigungen in der App benachrichtigt (Glocke mit Badge).
-- [ ] Mitarbeiter können eigene veröffentlichte Schichten einem Kollegen zum Tausch anbieten; der Tausch wird erst nach Admin-Bestätigung tatsächlich wirksam.
+- [ ] Mitarbeiter können eigene veröffentlichte Schichten einem Kollegen zum Tausch anbieten (im Kalender oder direkt auf Home über "Meine Woche"); der Tausch wird erst nach Admin-Bestätigung tatsächlich wirksam.
+- [ ] Nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen sind für den Admin im Änderungsprotokoll nachvollziehbar.
 
 ## 4. Offene Risiken / vor Launch zu klären
 1. **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist. Für einen Kalenderfeed ist das üblich (kein Login im Kalender-Client), aber die ID sollte durch einen nicht erratbaren Zugriffstoken ersetzt werden (z. B. separates `calendar_token`-Feld pro Mitarbeiter statt der UUID direkt), bevor das live geht.
@@ -167,4 +181,5 @@
 3. **Backplan ohne Truppe**: jetzt mit Warnung vor dem Veröffentlichen abgefangen (§2.10, B4/B5) statt stillschweigend unsichtbar zu bleiben.
 4. **Kapazität je Truppe**: jetzt als Inline-Warnung sichtbar (§2.10, B6), aber weiterhin keine harte Sperre — bleibt bewusst organisatorische Verantwortung des Admins.
 5. **Abrechnungszeitraum im Kalender**: ist über `app_settings.billing_period_start_day` admin-einstellbar (Default: 1 = Kalendermonat), siehe §2.6. Offen bleibt, den tatsächlich gewünschten Start-Tag einmalig mit dem Admin/Chef abzustimmen.
-6. **Schichttausch ohne Eignungsprüfung**: Beim Anbieten wird nicht automatisch geprüft, ob der Kollege laut Verfügbarkeit an dem Tag überhaupt könnte — Admin sieht das erst bei der finalen Bestätigung, nicht vorher im Tausch-Dialog selbst.
+6. **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt gewarnt, wenn der Kollege laut eigener Angabe an dem Tag nicht könnte (§2.15, T9/T10), aber nicht ob er an dem Tag bereits selbst eine Schicht hat — das sieht der Admin erst bei der finalen Bestätigung.
+7. **Kein "Abmelden ohne Ersatz"**: zurückgestellte Idee aus der Workshop-Runde — ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben.

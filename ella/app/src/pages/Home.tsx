@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, notifyEmployees, type Employee } from "../lib/supabase";
-import { toDateStr, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import { toDateStr, addDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
 
 type ShiftRow = {
   id: string;
@@ -45,8 +45,14 @@ export function Home({ employee }: { employee: Employee }) {
   const [needsAvailability, setNeedsAvailability] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [newAnnouncement, setNewAnnouncement] = useState("");
+  const [colleagues, setColleagues] = useState<{ id: string; name: string }[]>([]);
+  const [swapRequestedShiftIds, setSwapRequestedShiftIds] = useState<Set<string>>(new Set());
+  const [weekSwapPickerFor, setWeekSwapPickerFor] = useState<string | null>(null);
+  const [weekSwapTarget, setWeekSwapTarget] = useState("");
+  const [weekSwapTargetUnavailable, setWeekSwapTargetUnavailable] = useState(false);
 
   const today = toDateStr(new Date());
+  const weekDays = Array.from({ length: 7 }, (_, i) => toDateStr(addDays(new Date(), i)));
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
 
@@ -56,9 +62,17 @@ export function Home({ employee }: { employee: Employee }) {
       .select("id,date,shift_type,role_tag,start_time,end_time")
       .eq("employee_id", employee.id)
       .eq("status", "published")
-      .gte("date", today)
-      .order("date")
-      .limit(5);
+      .gte("date", weekDays[0])
+      .lte("date", weekDays[6])
+      .order("date");
+
+    const colleaguesPromise = supabase.from("employees").select("id,name").eq("active", true).neq("id", employee.id).order("name");
+
+    const pendingSwapShiftIdsPromise = supabase
+      .from("shift_swap_requests")
+      .select("shift_id")
+      .eq("requested_by", employee.id)
+      .eq("status", "pending");
 
     const todayShiftsPromise = supabase
       .from("shifts")
@@ -110,16 +124,27 @@ export function Home({ employee }: { employee: Employee }) {
       .order("created_at", { ascending: false })
       .limit(10);
 
-    const [shiftsRes, todayShiftsRes, bakesRes, submissionRes, announcementsRes, incomingSwapsRes, outgoingSwapsRes] =
-      await Promise.all([
-        shiftsPromise,
-        todayShiftsPromise,
-        bakesPromise,
-        submissionPromise,
-        announcementsPromise,
-        incomingSwapsPromise,
-        outgoingSwapsPromise
-      ]);
+    const [
+      shiftsRes,
+      todayShiftsRes,
+      bakesRes,
+      submissionRes,
+      announcementsRes,
+      incomingSwapsRes,
+      outgoingSwapsRes,
+      colleaguesRes,
+      pendingSwapShiftIdsRes
+    ] = await Promise.all([
+      shiftsPromise,
+      todayShiftsPromise,
+      bakesPromise,
+      submissionPromise,
+      announcementsPromise,
+      incomingSwapsPromise,
+      outgoingSwapsPromise,
+      colleaguesPromise,
+      pendingSwapShiftIdsPromise
+    ]);
 
     setShifts((shiftsRes.data as ShiftRow[]) || []);
     setTodayShifts((todayShiftsRes.data as unknown as TodayShiftRow[]) || []);
@@ -128,6 +153,8 @@ export function Home({ employee }: { employee: Employee }) {
     setAnnouncements((announcementsRes.data as unknown as Announcement[]) || []);
     setIncomingSwaps((incomingSwapsRes.data as unknown as SwapRow[]) || []);
     setOutgoingSwaps((outgoingSwapsRes.data as unknown as SwapRow[]) || []);
+    setColleagues(colleaguesRes.data || []);
+    setSwapRequestedShiftIds(new Set((pendingSwapShiftIdsRes.data || []).map((r) => r.shift_id)));
   }
 
   useEffect(() => {
@@ -166,6 +193,28 @@ export function Home({ employee }: { employee: Employee }) {
     confirmed: "bestätigt",
     cancelled: "zurückgezogen"
   };
+
+  async function checkWeekSwapTarget(colleagueId: string, dateStr: string) {
+    if (!colleagueId) {
+      setWeekSwapTargetUnavailable(false);
+      return;
+    }
+    const { data } = await supabase.rpc("is_colleague_available", { target_employee: colleagueId, check_date: dateStr });
+    setWeekSwapTargetUnavailable(data === false);
+  }
+
+  async function offerWeekSwap(shiftId: string) {
+    if (!weekSwapTarget) return;
+    const { error } = await supabase
+      .from("shift_swap_requests")
+      .insert({ shift_id: shiftId, requested_by: employee.id, offered_to: weekSwapTarget });
+    if (!error) {
+      setSwapRequestedShiftIds((prev) => new Set(prev).add(shiftId));
+      setWeekSwapPickerFor(null);
+      setWeekSwapTarget("");
+      setWeekSwapTargetUnavailable(false);
+    }
+  }
 
   return (
     <div>
@@ -248,22 +297,97 @@ export function Home({ employee }: { employee: Employee }) {
       )}
 
       <div className="card">
-        <h3>Anstehende Schichten</h3>
-        {shifts.length === 0 && <p style={{ color: "var(--ink-soft)" }}>Keine anstehenden Schichten.</p>}
-        {shifts.map((s) => (
-          <div className="shift-line" key={s.id}>
-            <span className="tag">
-              {new Date(s.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}
-            </span>
-            <span>
-              {s.shift_type === "frueh" ? "Früh" : "Spät"}
-              {s.role_tag ? ` · ${s.role_tag}` : ""}
-            </span>
-            <span className="who">
-              {s.start_time}–{s.end_time}
-            </span>
-          </div>
-        ))}
+        <h3>Meine Woche</h3>
+        {weekDays.map((d) => {
+          const dayShifts = shifts.filter((s) => s.date === d);
+          return (
+            <div key={d}>
+              {dayShifts.length === 0 ? (
+                <div className="shift-line">
+                  <span className="tag">
+                    {new Date(d).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}
+                  </span>
+                  <span style={{ color: "var(--ink-soft)" }}>frei</span>
+                  <span className="who" />
+                </div>
+              ) : (
+                dayShifts.map((s) => (
+                  <div key={s.id}>
+                    <div className="shift-line">
+                      <span className="tag">
+                        {new Date(s.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}
+                      </span>
+                      <span>
+                        {s.shift_type === "frueh" ? "Früh" : "Spät"}
+                        {s.role_tag ? ` · ${s.role_tag}` : ""}
+                      </span>
+                      <span className="who">
+                        {s.start_time}–{s.end_time}
+                      </span>
+                    </div>
+                    {swapRequestedShiftIds.has(s.id) ? (
+                      <p className="hint" style={{ margin: "0 0 0.5rem" }}>
+                        Tauschanfrage gestellt – wartet auf Antwort.
+                      </p>
+                    ) : weekSwapPickerFor === s.id ? (
+                      <div style={{ margin: "0 0 0.5rem" }}>
+                        <div className="row-actions">
+                          <select
+                            style={{ flex: 1 }}
+                            value={weekSwapTarget}
+                            onChange={(e) => {
+                              setWeekSwapTarget(e.target.value);
+                              checkWeekSwapTarget(e.target.value, s.date);
+                            }}
+                          >
+                            <option value="">Kolleg:in wählen…</option>
+                            {colleagues.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                            disabled={!weekSwapTarget}
+                            onClick={() => offerWeekSwap(s.id)}
+                          >
+                            Anbieten
+                          </button>
+                          <button
+                            className="ghost"
+                            style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                            onClick={() => {
+                              setWeekSwapPickerFor(null);
+                              setWeekSwapTargetUnavailable(false);
+                            }}
+                          >
+                            Abbrechen
+                          </button>
+                        </div>
+                        {weekSwapTargetUnavailable && (
+                          <p className="hint warn" style={{ margin: "0.3rem 0 0" }}>
+                            ⚠ Laut eigener Angabe an diesem Tag nicht verfügbar — trotzdem anbieten möglich.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p style={{ margin: "0 0 0.5rem" }}>
+                        <button
+                          className="ghost"
+                          style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                          onClick={() => setWeekSwapPickerFor(s.id)}
+                        >
+                          Tauschen
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {employee.bake_team_id && (

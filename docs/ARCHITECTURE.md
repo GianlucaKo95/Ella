@@ -103,7 +103,16 @@ shift_swap_requests                       -- Schichttausch
   created_at, responded_at
   -- 'confirmed' wird nur vom Admin gesetzt und ist der Zeitpunkt, an dem
   -- shifts.employee_id tatsächlich auf offered_to umgeschrieben wird.
+
+plan_audit_log                            -- Änderungsprotokoll (nur Admin lesbar)
+  id, entity ('shift'|'bake_entry'), entity_id, date,
+  change_summary (Freitext), changed_at
+  -- wird ausschließlich per Trigger befüllt (AFTER UPDATE/DELETE), und nur
+  -- für Einträge, die zum Zeitpunkt der Änderung bereits status='published'
+  -- waren — normale Planungsarbeit an draft-Einträgen wird nicht protokolliert.
 ```
+
+`is_colleague_available(target_employee, check_date)` — `security definer`-Funktion, die beim Anbieten eines Schichttauschs prüft, ob der ausgewählte Kollege an dem Tag laut eigener Verfügbarkeitsangabe "kann nicht" eingetragen hat, ohne dass der anbietende Mitarbeiter dessen `availability_entries` direkt lesen darf (die bleiben weiterhin strikt "eigene oder Admin"). Liefert nur ein Bool, keine Rohdaten; `true`, wenn unbekannt.
 
 RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte (`status='published'`) Shifts/Backpläne (Backpläne nur der eigenen Truppe) + alle Ankündigungen; `admin` sieht/schreibt alles. `app_settings`/`bake_teams`/`staffing_requirements`/`cake_items` sind für alle eingeloggten Nutzer lesbar, aber nur für `admin` schreibbar.
 
@@ -121,12 +130,12 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 ## 9. Mitarbeiter-Ansicht: Home / Kalender / Profil
 Über die Navbar erreichbare Screens (Admin sieht zusätzlich „Planung" und „Team"):
 
-- **Home** (`/home`): "Heute im Dienst" (alle veröffentlichten Schichten des heutigen Tages, nicht nur die eigene); offene/abgeschickte Schichttausch-Anfragen (eingehend: Annehmen/Ablehnen; ausgehend: Status); eigene anstehende veröffentlichte Schichten; falls einer Back-Truppe zugeordnet, zusätzlich deren nächste Backtermine; Hinweiskarte, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt ins Profil, dismissable); "Aktuelles" mit den News aus `announcements` (Admin kann dort direkt posten, löst eine Benachrichtigung an alle übrigen aktiven Mitarbeiter aus).
-- **Kalender** (`/kalender`): Apple-Kalender-artige Monatsansicht aller veröffentlichten Schichten, eigene Tage hervorgehoben, Klick auf einen Tag zeigt die Details inkl. eines "Tauschen"-Buttons auf eigenen Schichten (öffnet eine Kollegen-Auswahl, legt eine `shift_swap_requests`-Zeile an). Stat-Kacheln zeigen die voraussichtlichen eigenen Stunden und die Anzahl eigener Schichten **im admin-eingestellten Abrechnungszeitraum** (§8), nicht im angezeigten Kalendermonat. ICS-Abo-Link.
+- **Home** (`/home`): "Heute im Dienst" (alle veröffentlichten Schichten des heutigen Tages, nicht nur die eigene); offene/abgeschickte Schichttausch-Anfragen (eingehend: Annehmen/Ablehnen; ausgehend: Status); "Meine Woche" (rollierende 7-Tage-Ansicht ab heute, je Tag die eigene Schicht oder "frei", mit direktem "Tauschen"-Button je Schicht — keine Notwendigkeit, dafür erst in den Kalender zu wechseln); falls einer Back-Truppe zugeordnet, zusätzlich deren nächste Backtermine; Hinweiskarte, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt ins Profil, dismissable); "Aktuelles" mit den News aus `announcements` (Admin kann dort direkt posten, löst eine Benachrichtigung an alle übrigen aktiven Mitarbeiter aus).
+- **Kalender** (`/kalender`): Apple-Kalender-artige Monatsansicht aller veröffentlichten Schichten, eigene Tage hervorgehoben, Klick auf einen Tag zeigt die Details inkl. eines "Tauschen"-Buttons auf eigenen Schichten (öffnet eine Kollegen-Auswahl, legt eine `shift_swap_requests`-Zeile an; warnt per `is_colleague_available` dezent, falls der gewählte Kollege laut eigener Angabe an dem Tag nicht kann — keine harte Sperre). Stat-Kacheln zeigen die voraussichtlichen eigenen Stunden und die Anzahl eigener Schichten **im admin-eingestellten Abrechnungszeitraum** (§8), nicht im angezeigten Kalendermonat. ICS-Abo-Link.
 - **Profil** (`/profil`): editierbarer Anzeigename (`update_my_name`), die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten je Wochentag, Ausnahmen je Einzeldatum. Welche Wochentage für das Einreichen vollständig sein müssen, ergibt sich dynamisch aus `relevantDays` (§8) statt fest Mi–So zu sein.
 
 ## 10. Admin-Ansicht: Planung / Team
-- **Planung** (`/admin/planung`): Einstellungen (§8), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
+- **Planung** (`/admin/planung`): Einstellungen (§8), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
 - **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar).
 
 ## 11. Monatlicher Verfügbarkeits-Stichtag
@@ -138,7 +147,8 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 ## 13. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
 - **Benachrichtigungen ohne externen Kanal**: `notifications_log` wird jetzt befüllt und in der App angezeigt, aber es gibt noch keinen echten Push (HA-Notify/Web-Push) außerhalb der App — nur die Glocke beim nächsten App-Öffnen/Poll (60s).
-- **Schichttausch ohne Eignungsprüfung**: Beim Anbieten eines Tauschs wird nicht geprüft, ob der Kollege laut `availability_entries` an dem Tag überhaupt verfügbar wäre oder ob er bereits selbst eine Schicht hat — das sieht der Admin erst bei der finalen Bestätigung.
+- **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
+- **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.
 - Mehrere Cafés/Standorte: aktuell bewusst single-tenant angenommen.
 

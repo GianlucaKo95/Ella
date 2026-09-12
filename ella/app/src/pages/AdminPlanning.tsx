@@ -48,6 +48,7 @@ type BakeEntryRow = {
   status: "draft" | "published";
 };
 type BakeTeam = { id: string; name: string };
+type AuditEntry = { id: string; entity: "shift" | "bake_entry"; date: string; change_summary: string; changed_at: string };
 type PendingSwap = {
   id: string;
   status: "accepted";
@@ -80,6 +81,7 @@ export function AdminPlanning() {
   const [newTeamName, setNewTeamName] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const dayRulesDirty = serviceDays.join() !== savedServiceDays.join() || bakeDays.join() !== savedBakeDays.join();
 
   const nextMonth = nextMonthStart(new Date());
@@ -98,7 +100,7 @@ export function AdminPlanning() {
   const bkDateStrs = bkDays.map(toDateStr);
 
   async function loadAll() {
-    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes, swapsRes] = await Promise.all([
+    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes, swapsRes, auditRes] = await Promise.all([
       supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
@@ -113,7 +115,14 @@ export function AdminPlanning() {
         .select(
           "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
         )
-        .eq("status", "accepted")
+        .eq("status", "accepted"),
+      supabase
+        .from("plan_audit_log")
+        .select("id,entity,date,change_summary,changed_at")
+        .gte("date", toDateStr(planMonth))
+        .lt("date", toDateStr(addMonths(planMonth, 1)))
+        .order("changed_at", { ascending: false })
+        .limit(50)
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
@@ -125,6 +134,7 @@ export function AdminPlanning() {
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
+    setAuditLog((auditRes.data as AuditEntry[]) || []);
   }
 
   async function saveDeadline() {
@@ -539,6 +549,23 @@ export function AdminPlanning() {
                 >
                   Ablehnen
                 </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {auditLog.length > 0 && (
+        <div className="card" style={{ marginTop: "1rem" }}>
+          <h3>Änderungsprotokoll ({monthLabel(planMonth)})</h3>
+          <p className="hint">Nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen.</p>
+          {auditLog.map((a) => (
+            <div className="shift-line" key={a.id}>
+              <span className="tag">{new Date(a.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>
+              <span>{a.change_summary}</span>
+              <span className="who">
+                {new Date(a.changed_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}{" "}
+                {new Date(a.changed_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>
           ))}
