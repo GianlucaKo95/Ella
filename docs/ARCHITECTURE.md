@@ -1,119 +1,136 @@
-# Ella – Architekturkonzept (v0.1, Rolle: Architekt)
+# Ella – Architekturkonzept (Rolle: Architekt)
 
 ## 1. Fachlicher Kontext
-Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme sollen digitalisiert werden:
+Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme werden digitalisiert:
 
 1. **Schichtplanung**: Mitarbeiter melden Verfügbarkeiten, Admin/Chef erstellt daraus den Dienstplan, veröffentlichter Plan geht an alle Mitarbeiter.
-2. **Kuchenplanung**: Planung, wann/wie viel von welchem Kuchen gebacken werden muss (vermutlich an Schichten/Tage/Wochenendspitzen gekoppelt).
+2. **Kuchenplanung**: Planung, wann/wie viel von welchem Kuchen gebacken werden muss, je Back-Truppe.
 
 ## 2. Rollen
-- **Mitarbeiter**: trägt Verfügbarkeit ein, sieht veröffentlichten Plan + Kuchenplan, erhält Benachrichtigungen.
-- **Admin/Chef**: sieht alle Verfügbarkeiten, baut/ändert Schichtplan, plant Kuchenproduktion, veröffentlicht beides, verwaltet Mitarbeiter/Rezepte.
+- **Mitarbeiter**: trägt Verfügbarkeit ein, sieht veröffentlichten Plan + Kuchenplan (eigene Truppe), erhält Ankündigungen.
+- **Admin/Chef**: sieht alle Verfügbarkeiten, baut/ändert Schicht- und Backplan, veröffentlicht beides, verwaltet Mitarbeiter/Back-Truppen/Einstellungen.
 
 ## 3. Tech-Stack (konsistent mit bestehenden Projekten: Polaris, SwapBid, Daily Nest Plans)
-- **Frontend**: React + Vite + TypeScript, PWA (installierbar, offline-fähiger Grundshell, Push-fähig)
-- **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für Benachrichtigungslogik)
-- **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, optional Ingress in HA-UI), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
-- **Benachrichtigungen**: HA Notify-Service als ein Kanal (Addon läuft ja in HA) + optional Web-Push für die PWA direkt, damit es auch ohne HA-Companion-App funktioniert
+- **Frontend**: React + Vite + TypeScript, PWA (installierbar, offline-fähiger Grundshell)
+- **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für den ICS-Feed)
+- **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, Ingress), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
 
 ## 4. Kernmodule
 1. **Auth & Mitarbeiterverwaltung** (Supabase Auth, Rollen: `admin`, `employee`)
-2. **Verfügbarkeiten** (Mitarbeiter tragen pro Woche/Zeitraum ein, wann sie können/nicht können)
-3. **Schichtplanung** (Admin erstellt Plan auf Basis der Verfügbarkeiten, Konfliktprüfung, Veröffentlichung)
-4. **Kuchenplanung** (Backliste pro Tag/Woche, Mengen, ggf. Zuordnung "wer backt was")
-5. **Benachrichtigungen** (Plan veröffentlicht → Push/HA-Notify an betroffene Mitarbeiter)
+2. **Verfügbarkeiten** (dauerhaft wiederkehrend + Ausnahmen je Datum, monatlicher Einreichungs-Stichtag)
+3. **Schichtplanung** (Admin erstellt Plan auf Basis der Verfügbarkeiten, Veröffentlichung)
+4. **Kuchenplanung** (Backliste pro Tag, Mengen, Zuordnung zu einer Back-Truppe)
+5. **Ankündigungen** ("Aktuelles" vom Admin/Chef an alle Mitarbeiter)
+6. **Admin-Einstellungen** (Abrechnungszeitraum, Service-/Back-Tage, Back-Truppen)
 
 ## 5. Rahmendaten
-- Café-Öffnungszeiten (Theke/Service): standardmäßig **Donnerstag–Sonntag** → nur an diesen Tagen gibt es `shifts`. Seit §6e vom Admin einstellbar (`app_settings.service_days`).
-- Backen: standardmäßig **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten**. Seit §6e vom Admin einstellbar (`app_settings.bake_days`), z. B. um weniger Backtage festzulegen, wenn weniger gebacken werden muss.
-- Back-Truppen: standardmäßig **3**, aber als Zeilen in `bake_teams` jetzt über die Admin-UI anlegbar/umbenennbar/löschbar (§6e) — die Anzahl ist also kein fixer Wert mehr, sondern ergibt sich aus der Tabelle.
+Alle drei sind inzwischen admin-einstellbar (Details in §8), mit diesen Startwerten:
+- Café-Öffnungszeiten (Theke/Service): standardmäßig **Donnerstag–Sonntag**.
+- Backen: standardmäßig **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten** — Backen und Service überlappen sich nie am selben Tag in der Zeit, aber das System erzwingt das aktuell nicht automatisch (offene Frage, §13).
+- Back-Truppen: standardmäßig **3** (Seed-Daten), Anzahl ergibt sich aus den Zeilen in `bake_teams`, nicht mehr aus einer fixen Annahme.
+- Nur die **Frühschicht** unterscheidet Küche/Service; die **Spätschicht** kennt diese Aufteilung nicht.
 
-## 6. Datenmodell (Entwurf)
+## 6. Datenmodell
 
 ```
 employees
   id, auth_user_id, name, role ('admin'|'employee'), active,
-  bake_team_id (nullable FK -> bake_teams, vom Admin im MA-Profil gepflegt),
+  bake_team_id (nullable FK -> bake_teams, admin-gepflegt; Name vom MA selbst
+    über update_my_name() änderbar),
   created_at
 
 bake_teams
-  id, name                      -- die 3 festen Back-Truppen
+  id, name                      -- Back-Truppen, per Admin-UI CRUD-verwaltet
 
--- Verfügbarkeit: entweder dauerhaft wiederkehrend ("immer Mo frei/verfügbar")
--- oder einmalig für eine bestimmte Woche/Datum (Override/Ausnahme)
+-- Verfügbarkeit: entweder dauerhaft wiederkehrend ("immer Mo verfügbar")
+-- oder einmalig für ein bestimmtes Datum (Override/Ausnahme, schlägt die Regel)
 availability_entries
   id, employee_id,
   kind ('recurring'|'one_time'),
-  day_of_week (bei 'recurring'), specific_date (bei 'one_time'),
-  from_time, to_time, available (bool),   -- auch "explizit NICHT verfügbar" abbildbar
+  day_of_week (bei 'recurring', 0=Mo..6=So), specific_date (bei 'one_time'),
+  from_time, to_time, available (bool),
   note, created_at
 
-shifts                                    -- nur Do-So (Service)
+-- Monatlicher Einreichungs-Stichtag (siehe §9)
+availability_deadlines
+  month (date, 1. des Monats, unique), deadline (date)
+availability_submissions
+  employee_id, month, submitted_at   -- unique(employee_id, month)
+
+shifts                                    -- Service-Schichten
   id, date, start_time, end_time,
-  shift_type ('früh'|'spät'),
-  role_tag (nur bei 'früh' relevant: 'küche'|'service'; bei 'spät' null),
+  shift_type ('frueh'|'spaet'),
+  role_tag (nur bei 'frueh' relevant: 'kueche'|'service'; bei 'spaet' null),
   employee_id (nullable solange ungeplant),
   status ('draft'|'published'),
   created_by, created_at
+  -- Tages-Validierung gegen app_settings.service_days per Trigger, siehe §7
 
-staffing_requirements                     -- Planungsregeln fürs Admin-UI
-  id, day_of_week, shift_type ('früh'|'spät'),
-  role_tag (nullable, nur für 'früh'),
-  required_count                          -- z.B. Fr/früh/küche = 2, Fr/früh/service = 1
-
+staffing_requirements                     -- Personalbedarf fürs Admin-UI
+  id, day_of_week (0-6), shift_type ('frueh'|'spaet'),
+  role_tag (nullable, nur für 'frueh'),
+  required_count
 
 cake_items
   id, name, default_unit ('stück'|'blech'|...), recipe_note
 
-bake_plan_entries                         -- nur Mi/Do/Fr, außerhalb Öffnungszeiten
+bake_plan_entries                         -- Backplan, außerhalb Öffnungszeiten
   id, date, cake_item_id, quantity,
   bake_team_id (nullable solange ungeplant),
   status ('draft'|'published'), note
+  -- Tages-Validierung gegen app_settings.bake_days per Trigger, siehe §7
+
+announcements                             -- "Aktuelles" (Home-Screen)
+  id, body, created_by (-> employees), created_at
+
+app_settings                              -- Singleton (genau 1 Zeile, id=true)
+  billing_period_start_day (1-28, Default 1),
+  service_days (smallint[], 0=Mo..6=So, nicht leer, Default {3,4,5,6}),
+  bake_days   (smallint[], 0=Mo..6=So, nicht leer, Default {2,3,4})
 
 notifications_log
   id, type ('shift_published'|'bake_plan_published'), target_employee_id,
-  sent_at, channel ('ha_notify'|'web_push')
+  sent_at, channel ('ha_notify'|'web_push')   -- vorbereitet, noch ungenutzt (§13)
 ```
 
-RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte (status='published') Shifts/Backpläne (inkl. seiner eigenen Back-Truppe); `admin` sieht/schreibt alles.
+RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte (`status='published'`) Shifts/Backpläne (Backpläne nur der eigenen Truppe) + alle Ankündigungen; `admin` sieht/schreibt alles. `app_settings`/`bake_teams`/`staffing_requirements`/`cake_items` sind für alle eingeloggten Nutzer lesbar, aber nur für `admin` schreibbar.
 
-## 7. Kalender-Export (ICS)
-Pro Mitarbeiter ein ICS-Feed (Edge Function, per token abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
+## 7. Wochentags-Validierung (Trigger statt fixer CHECKs)
+`service_days`/`bake_days` sind laufzeit-konfigurierbar, ein reiner `CHECK`-Constraint kann aber nicht gegen eine andere Tabelle prüfen. Deshalb validieren zwei `BEFORE INSERT/UPDATE OF date`-Trigger-Funktionen (`check_shift_service_day` auf `shifts`, `check_bake_plan_day` auf `bake_plan_entries`) jedes neue/geänderte Datum gegen die aktuellen `app_settings`-Werte und lehnen mit einer Exception ab, wenn der Wochentag nicht erlaubt ist. Das ersetzt die ursprünglichen festen `isodow`-Checks (Migration 0001) vollständig (Migration 0006).
 
-## 6a. Monatlicher Verfügbarkeits-Stichtag
-Siehe Datenmodell: `availability_deadlines` (ein Stichtag pro Monat, vom Admin gesetzt) und `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (Mi–So) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
+## 8. Admin-Einstellungen (`app_settings`)
+Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Einstellungen":
+- **Abrechnungszeitraum** (`billing_period_start_day`): an welchem Tag des Monats der Zeitraum beginnt, der für die „voraussichtlichen Stunden" im Mitarbeiter-Kalender zählt. `1` = klassischer Kalendermonat. Betrifft **ausschließlich** diese Stundenanzeige.
+- **Service-/Back-Tage** (`service_days`/`bake_days`): Wochentags-Toggle, bestimmen welche Wochentage in der Monatsplanung (§10) als Service- bzw. Back-Tage gelten, z. B. um die Back-Tage zu reduzieren, wenn weniger gebacken werden muss. Die Vereinigung beider Mengen (`relevantDays`) bestimmt, für welche Wochentage ein Mitarbeiter vor dem Einreichen eine wiederkehrende Verfügbarkeit braucht (§9).
+- **Back-Truppen** (`bake_teams`): eigene Karte zum Anlegen/Umbenennen/Löschen einer Truppe sowie zur Mitgliederverwaltung (Mitarbeiter zuordnen/entfernen/umhängen), technisch weiterhin über `employees.bake_team_id`.
 
-## 6b. Ankündigungen ("Aktuelles") & eigener Anzeigename
-- `announcements`: einfache News/Ankündigungen vom Admin/Chef an alle Mitarbeiter (lesbar für alle eingeloggten Nutzer, schreibbar nur von `admin`). Erscheinen auf dem Home-Screen.
-- `update_my_name(new_name text)`: `SECURITY DEFINER`-Funktion, über die sich ein Mitarbeiter ausschließlich seinen eigenen Anzeigenamen ändern kann (Rolle, Truppe, Aktiv-Status bleiben admin-exklusiv, da es dafür keine offene Update-Policy auf `employees` gibt).
+**Wichtig**: Der Abrechnungszeitraum und die Planungs-Zeiträume sind bewusst entkoppelt — die Schicht-/Backplanung durch den Admin läuft immer über den vollen Kalendermonat (§10), unabhängig vom eingestellten Abrechnungszeitraum.
 
-## 6c. Mitarbeiter-Ansicht: 3 Screens (Bottom-Navigation)
-Die Mitarbeiter-Sicht ist in genau drei über die Navbar erreichbare Screens gegliedert (Admin behält zusätzlich "Planung" und "Team"):
+## 9. Mitarbeiter-Ansicht: Home / Kalender / Profil
+Über die Navbar erreichbare Screens (Admin sieht zusätzlich „Planung" und „Team"):
 
-- **Home** (`/home`): Übersicht der eigenen anstehenden (veröffentlichten) Schichten; falls der Mitarbeiter einer Back-Truppe zugeordnet ist (`bake_team_id` gesetzt), zusätzlich die nächsten Backtermine dieser Truppe; ein Hinweis-Popup, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt direkt ins Profil, dismissable); Rubrik "Aktuelles" mit den News aus `announcements` (Admin kann dort direkt neue Einträge verfassen).
-- **Kalender** (`/kalender`): Monatsansicht im Stil von Apple Kalender (Grid mit führenden/nachfolgenden Tagen der Nachbarmonate). Zeigt alle veröffentlichten Schichten des Monats, eigene Schichten werden farblich hervorgehoben (Punkt/Hintergrund), Klick auf einen Tag zeigt die Details (wer arbeitet wann). Oben eine Statistik-Zeile mit den voraussichtlichen eigenen Stunden im aktuell angezeigten Kalendermonat (= angenommener Abrechnungszeitraum, siehe offene Fragen) sowie der Anzahl eigener Schichten. ICS-Abo-Link bleibt hier verfügbar.
-- **Profil** (`/profil`): editierbarer Anzeigename (über `update_my_name`), darunter die dauerhaften (wiederkehrenden) Verfügbarkeiten je Wochentag sowie die Ausnahmen (Override je Einzeldatum) — inklusive der Stichtag-/Einreichen-Karte aus §6a.
+- **Home** (`/home`): eigene anstehende veröffentlichte Schichten; falls einer Back-Truppe zugeordnet, zusätzlich deren nächste Backtermine; Hinweiskarte, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt ins Profil, dismissable); "Aktuelles" mit den News aus `announcements` (Admin kann dort direkt posten).
+- **Kalender** (`/kalender`): Apple-Kalender-artige Monatsansicht aller veröffentlichten Schichten, eigene Tage hervorgehoben, Klick auf einen Tag zeigt die Details. Stat-Kacheln zeigen die voraussichtlichen eigenen Stunden und die Anzahl eigener Schichten **im admin-eingestellten Abrechnungszeitraum** (§8), nicht im angezeigten Kalendermonat. ICS-Abo-Link.
+- **Profil** (`/profil`): editierbarer Anzeigename (`update_my_name`), die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten je Wochentag, Ausnahmen je Einzeldatum. Welche Wochentage für das Einreichen vollständig sein müssen, ergibt sich dynamisch aus `relevantDays` (§8) statt fest Mi–So zu sein.
 
-Die früheren eigenständigen Screens "Verfügbarkeit", "Plan" und "Backplan" wurden zugunsten dieser drei Screens entfernt; ihre Inhalte sind in Profil bzw. Kalender/Home aufgegangen.
+## 10. Admin-Ansicht: Planung / Team
+- **Planung** (`/admin/planung`): Einstellungen (§8), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis, ein Veröffentlichen-Button je Monat.
+- **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar).
 
-## 6d. Admin-Einstellungen (app_settings)
-Singleton-Tabelle `app_settings` (eine feste Zeile, `id = true`) für global vom Admin/Chef einstellbare Parameter, lesbar für alle eingeloggten Nutzer, schreibbar nur für `admin`:
-- `billing_period_start_day` (1–28): an welchem Tag des Monats der Abrechnungszeitraum beginnt. `1` = klassischer Kalendermonat (Default). Wird **ausschließlich** in der Kalender-Ansicht der Mitarbeiter für die "voraussichtlichen Stunden" verwendet und ist in der Admin-Planung unter "Einstellungen" editierbar, inkl. Live-Vorschau des aktuell daraus resultierenden Zeitraums.
+## 11. Monatlicher Verfügbarkeits-Stichtag
+`availability_deadlines` (ein Stichtag pro Monat) + `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (§8/§9) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
 
-**Wichtige Abgrenzung**: Der Abrechnungszeitraum betrifft ausschließlich die Stundenanzeige im Mitarbeiter-Kalender (für die Lohnabrechnung). Die eigentliche **Schicht-/Backplanung durch den Admin erfolgt immer für den vollen Kalendermonat** (`monthDaysMatching` in `lib/dates.ts`, gefüttert mit den einstellbaren Service-/Back-Tagen aus §6e), unabhängig vom eingestellten Abrechnungszeitraum — die beiden Zeiträume sind bewusst entkoppelt.
+## 12. Kalender-Export (ICS)
+Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
 
-## 6e. Einstellbare Geschäftsregeln (Service-/Back-Tage, Back-Truppen)
-Was in §5 früher fachlich fix war, ist jetzt admin-einstellbar, für den Fall dass sich z. B. der Backbedarf ändert:
-- `app_settings.service_days` / `app_settings.bake_days` (jeweils `smallint[]`, 0=Mo..6=So, nicht leer): an welchen Wochentagen es Service bzw. Backen gibt. Editierbar in der Admin-Planung unter "Einstellungen" über Wochentags-Toggle-Buttons; wirkt sich sofort auf die Monatsplanung (§6c) und auf die vom Mitarbeiter vor dem Einreichen geforderten Tage (`relevantDays` = Vereinigung aus beiden Arrays, ersetzt die früher feste Mi–So-Annahme) aus.
-- Da ein Datums-`CHECK`-Constraint in Postgres nicht gegen eine andere Tabelle prüfen kann, validieren `BEFORE INSERT/UPDATE`-Trigger (`check_shift_service_day`, `check_bake_plan_day`) neue/geänderte `shifts`/`bake_plan_entries`-Daten zur Laufzeit gegen die aktuellen `app_settings`-Werte, statt der alten festen `isodow`-Checks.
-- `bake_teams`: weiterhin eine normale Tabelle, jetzt aber mit CRUD-UI (anlegen/umbenennen/löschen) in der Admin-Planung — die "3 festen Truppen" sind nur noch der Startzustand (Seed-Daten), keine Code-Annahme mehr. Direkt dort kann der Admin pro Truppe auch die Mitglieder verwalten (Mitarbeiter hinzufügen/entfernen, inkl. Umhängen aus einer anderen Truppe) — technisch weiterhin über `employees.bake_team_id`, nur jetzt zusätzlich aus Sicht der Truppe statt nur aus Sicht des einzelnen Mitarbeiter-Profils (AdminEmployees) editierbar.
+## 13. Offene Architekturfragen (für die nächste Iteration)
+- **Keine harte Kollisionsprüfung**: Es wird nicht automatisch verhindert, dass sich Service- und Back-Tage desselben Wochentags zeitlich überlappen, wenn der Admin die Tage so einstellt, dass sie zusammenfallen — das bleibt organisatorische Verantwortung des Admins.
+- **Benachrichtigungen**: `notifications_log` existiert, aber es versendet aktuell niemand etwas (kein HA-Notify-/Web-Push-Trigger beim Veröffentlichen oder bei neuen Ankündigungen).
+- **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.
+- **Kapazität je Truppe**: keine Prüfung, ob ein Truppenmitglied an einem Back-Tag bereits anderweitig (Service) eingeteilt ist.
+- Mehrere Cafés/Standorte: aktuell bewusst single-tenant angenommen.
 
-## 8. Offene Architekturfragen (für nächste Iteration)
-- Der Abrechnungszeitraum ist jetzt admin-einstellbar (§6d) — weitere fachlich fixe Annahmen (Öffnungszeiten Do–So, Backtage Mi/Do/Fr, genau 3 Back-Truppen) sind bewusst weiterhin fest im Code/Schema verankert, da sie laut Auftrag unveränderlich sind. Falls sich das ändern sollte, wären sie nach demselben Muster (eigene `app_settings`-Felder) konfigurierbar zu machen.
-- Mehrere Cafés/Standorte jemals relevant, oder bewusst single-tenant? (Aktuell: single-tenant angenommen)
-- Annahme (bitte bestätigen): In der **Spätschicht gibt es keine Küche/Service-Trennung** — alle machen dort Service/Theke. Nur in der **Frühschicht** wird nach Küche/Service unterschieden. `staffing_requirements` bildet das je Wochentag + Schichttyp (+ Rolle bei Früh) ab, damit der Admin beim Planen sofort sieht, ob eine Schicht unter-/überbesetzt ist.
-
-## 7. Addon-Grundgerüst (geplant)
+## 14. Addon-Grundgerüst
 ```
 ella/
   config.yaml

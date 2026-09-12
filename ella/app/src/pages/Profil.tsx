@@ -125,7 +125,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
 
       <div className="card">
         <h3>Name</h3>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div className="row-actions">
           <input
             style={{ flex: 1 }}
             value={name}

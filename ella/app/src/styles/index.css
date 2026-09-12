@@ -240,6 +240,28 @@ button.ghost {
   color: var(--ink-soft);
 }
 
+/* ---- Utilities: wiederkehrende Inline-Flex-Muster gebündelt ---- */
+.row-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.day-toggle-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.day-toggle-row button {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.68rem;
+}
+.hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+.hint.warn { color: var(--attention); }
+
 /* ---- Schicht-Zeilen (Home) ---- */
 .shift-line {
   display: flex;

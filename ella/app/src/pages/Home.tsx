@@ -118,7 +118,7 @@ export function Home({ employee }: { employee: Employee }) {
             <p style={{ color: "var(--ink-soft)" }}>
               Bitte trag deine Verfügbarkeit für den kommenden Monat im Profil ein und reiche sie ein.
             </p>
-            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+            <div className="row-actions" style={{ marginTop: "0.5rem" }}>
               <button onClick={() => navigate("/profil")}>Jetzt eintragen</button>
               <button className="ghost" onClick={() => setDismissed(true)}>
                 Später
@@ -168,7 +168,7 @@ export function Home({ employee }: { employee: Employee }) {
       <div className="card">
         <h3>Aktuelles</h3>
         {employee.role === "admin" && (
-          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
+          <div className="row-actions" style={{ marginBottom: "0.75rem" }}>
             <input
               style={{ flex: 1 }}
               placeholder="Neue Ankündigung…"

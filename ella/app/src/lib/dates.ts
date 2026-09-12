@@ -14,23 +14,6 @@ export function addDays(date: Date, days: number): Date {
   return d;
 }
 
-// Liefert Mo..So der Woche, die `anyDate` enthält
-export function weekDates(anyDate: Date): Date[] {
-  const dow = isoDayOfWeek(anyDate);
-  const monday = addDays(anyDate, -dow);
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-}
-
-export function serviceDays(anyDate: Date): Date[] {
-  // Do(3)..So(6) im 0=Mo Schema
-  return weekDates(anyDate).slice(3, 7);
-}
-
-export function bakeDays(anyDate: Date): Date[] {
-  // Mi(2), Do(3), Fr(4)
-  return weekDates(anyDate).slice(2, 5);
-}
-
 // Alle Tage des Kalendermonats, der `monthStart` (1. des Monats) enthält.
 export function daysInMonth(monthStart: Date): Date[] {
   const year = monthStart.getFullYear();
