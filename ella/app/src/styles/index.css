@@ -1,36 +1,34 @@
-/* Ella — Redesign angelehnt an Wizzo: dunkel, klar, Gold-Akzent, scharfe Kanten */
+/* Ella — Redesign angelehnt an Gastronomie-Planungs-Apps (7shifts & Co.):
+   helle, freundliche Flächen, große Rundungen, farbige Pillen statt Kanten. */
 
 :root {
-  --bg: #111619;
-  --surface: #171c20;
-  --surface-2: #1c2226;
-  --border: #2b3236;
-  --border-gold: #4a4227;
-  --ink: #f3efe4;
-  --ink-soft: #8b9297;
-  --ink-faint: #5c6469;
-  --gold: #c6a95a;
-  --gold-ink: #14120a;
-  --good: #7fbf8f;
-  --good-bg: #1c2b20;
-  --warn: #d8b56a;
-  --warn-bg: #2b2418;
-  --attention: #d97b5c;
-  --attention-bg: #2b1e18;
-  font-family: "Manrope", system-ui, sans-serif;
+  --bg: #fdf1e4;
+  --surface: #fffdfa;
+  --surface-2: #fbeee0;
+  --border: #f0e0cc;
+  --ink: #2c231a;
+  --ink-soft: #8a7c6c;
+  --ink-faint: #c2b39f;
+  --accent: #f2683c;
+  --accent-ink: #ffffff;
+  --accent-soft: #ffe3d4;
+  --mint: #58a884;
+  --mint-soft: #dcf1e6;
+  --warn: #e0a83e;
+  --warn-soft: #fbecc9;
+  --attention: #e0603f;
+  --attention-soft: #fbe0d6;
+  --shadow: rgba(44, 35, 26, 0.08);
+  font-family: "Mulish", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
 
-html, body {
-  background: var(--bg);
-  color: var(--ink);
-}
-
+html, body { background: var(--bg); color: var(--ink); }
 body { margin: 0; }
 
 h1, h2, h3, h4 {
-  font-family: "Archivo", "Manrope", system-ui, sans-serif;
+  font-family: "Baloo 2", "Mulish", system-ui, sans-serif;
   font-weight: 700;
   text-wrap: balance;
   margin: 0 0 0.5em;
@@ -40,7 +38,7 @@ h1, h2, h3, h4 {
 .eyebrow, .label-caps {
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
@@ -48,7 +46,7 @@ h1, h2, h3, h4 {
 .app-shell {
   max-width: 720px;
   margin: 0 auto;
-  padding: 1.1rem 1rem calc(88px + env(safe-area-inset-bottom, 0px));
+  padding: 1.2rem 1rem calc(92px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ---- Kopfzeile ---- */
@@ -56,14 +54,13 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-bottom: 1rem;
-  margin-bottom: 1.1rem;
-  border-bottom: 1px solid var(--border-gold);
+  padding-bottom: 0.9rem;
+  margin-bottom: 1rem;
 }
 .brand-header h1 {
-  font-size: 1.4rem;
-  letter-spacing: 0.06em;
+  font-size: 1.6rem;
   margin: 0;
+  color: var(--accent);
 }
 .brand-header .who {
   margin-left: auto;
@@ -71,14 +68,16 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: 10px;
   font-size: 0.78rem;
+  font-weight: 600;
   color: var(--ink-soft);
   text-align: right;
 }
 .brand-header .avatar {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  border: 2px solid var(--gold);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent-soft);
   background: var(--surface-2);
   object-fit: cover;
   flex-shrink: 0;
@@ -92,9 +91,11 @@ h1, h2, h3, h4 {
   bottom: 0;
   display: flex;
   justify-content: space-around;
+  gap: 4px;
   background: var(--surface);
-  border-top: 1px solid var(--border-gold);
-  padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -8px 24px -16px var(--shadow);
   z-index: 10;
 }
 .nav-bar a {
@@ -102,99 +103,91 @@ h1, h2, h3, h4 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   text-decoration: none;
   color: var(--ink-faint);
-  font-size: 0.62rem;
+  font-size: 0.64rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding-top: 6px;
-  border-top: 2px solid transparent;
+  padding: 6px 4px;
+  border-radius: 14px;
 }
 .nav-bar a svg { width: 20px; height: 20px; stroke: currentColor; }
 .nav-bar a.active {
-  color: var(--gold);
-  border-top-color: var(--gold);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 /* ---- Karten ---- */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1.1rem 1.15rem;
+  border-radius: 20px;
+  padding: 1.15rem 1.25rem;
   margin-bottom: 1rem;
+  box-shadow: 0 10px 24px -18px var(--shadow);
 }
 .card-attention {
   border-color: var(--attention);
+  box-shadow: 0 0 0 3px var(--attention-soft);
 }
 .card h3, .card h4 {
-  font-size: 0.95rem;
-  letter-spacing: 0.02em;
+  font-size: 1rem;
 }
 
 /* ---- Tabellen ---- */
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: transparent;
-}
+table { width: 100%; border-collapse: collapse; background: transparent; }
 th, td {
   padding: 0.6rem 0.4rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
-  font-size: 0.88rem;
+  font-size: 0.9rem;
 }
 th {
   color: var(--ink-soft);
   font-weight: 700;
   font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
 }
 tr:last-child td { border-bottom: none; }
 
 /* ---- Formularelemente ---- */
 input, select {
-  font-family: "Manrope", sans-serif;
+  font-family: "Mulish", sans-serif;
   font-size: 0.92rem;
-  border-radius: 4px;
+  border-radius: 12px;
   border: 1px solid var(--border);
-  padding: 0.55rem 0.7rem;
+  padding: 0.6rem 0.8rem;
   background: var(--surface-2);
   color: var(--ink);
 }
 input:focus, select:focus {
   outline: none;
-  border-color: var(--gold);
+  border-color: var(--accent);
 }
 
-/* ---- Buttons: primär = massives Gold, sekundär = Outline ---- */
+/* ---- Buttons: primär = warmes Orange, sekundär = Outline ---- */
 button {
-  font-family: "Manrope", sans-serif;
+  font-family: "Mulish", sans-serif;
   font-weight: 700;
-  font-size: 0.82rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 0.85rem;
   cursor: pointer;
-  border-radius: 4px;
-  padding: 0.75rem 1rem;
-  background: var(--gold);
-  color: var(--gold-ink);
-  border: 1px solid var(--gold);
-  transition: opacity 0.15s ease;
+  border-radius: 999px;
+  padding: 0.75rem 1.2rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  transition: transform 0.1s ease, opacity 0.15s ease;
 }
-button:hover { opacity: 0.9; }
+button:hover { opacity: 0.92; }
+button:active { transform: scale(0.98); }
 button:disabled {
   background: var(--surface-2);
-  border-color: var(--border);
   color: var(--ink-faint);
   cursor: not-allowed;
-  opacity: 1;
 }
 button.ghost {
-  background: transparent;
+  background: var(--surface);
   color: var(--ink-soft);
   border: 1px solid var(--border);
 }
@@ -202,68 +195,60 @@ button.ghost {
 /* ---- Segmentierte Auswahl (kann / kann nicht, Früh / Spät, ...) ---- */
 .segmented {
   display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
 }
 .segmented button {
-  border-radius: 0;
-  border: none;
-  background: var(--surface-2);
+  border-radius: 999px;
+  background: transparent;
   color: var(--ink-soft);
-  font-size: 0.72rem;
-  padding: 0.4rem 0.75rem;
+  font-size: 0.74rem;
+  padding: 0.4rem 0.85rem;
 }
-.segmented button.on {
-  background: var(--gold);
-  color: var(--gold-ink);
-}
-.segmented button.off-on {
-  background: var(--attention);
-  color: var(--gold-ink);
-}
+.segmented button.on { background: var(--mint); color: white; }
+.segmented button.off-on { background: var(--attention); color: white; }
 
 /* ---- Statistik-Reihe ---- */
 .stat-row {
   display: flex;
-  gap: 0;
-  border-top: 1px solid var(--border-gold);
-  border-bottom: 1px solid var(--border-gold);
-  margin: 1.2rem 0;
+  gap: 10px;
+  margin: 0 0 1.2rem;
 }
 .stat-row .stat {
   flex: 1;
-  padding: 0.9rem 0.5rem;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0.8rem 0.5rem;
+  text-align: center;
 }
-.stat-row .stat:last-child { border-right: none; }
 .stat-row .stat .n {
-  font-family: "Archivo", sans-serif;
+  font-family: "Baloo 2", sans-serif;
   font-size: 1.6rem;
   font-weight: 700;
-  color: var(--ink);
+  color: var(--accent);
   line-height: 1;
   display: block;
 }
 .stat-row .stat .l {
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  font-size: 0.64rem;
+  font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--ink-soft);
 }
 
-/* ---- Badges ---- */
+/* ---- Badges / Pillen ---- */
 .badge {
   display: inline-block;
-  padding: 0.15rem 0.55rem;
+  padding: 0.2rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
   background: var(--surface-2);
   color: var(--ink-soft);
-  border: 1px solid var(--border);
 }
-.badge.published { background: var(--good-bg); color: var(--good); border-color: var(--good); }
-.badge.draft { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+.badge.published { background: var(--mint-soft); color: var(--mint); }
+.badge.draft { background: var(--warn-soft); color: #97701c; }
