@@ -83,6 +83,87 @@ h1, h2, h3, h4 {
   flex-shrink: 0;
 }
 
+/* ---- Benachrichtigungs-Glocke ---- */
+.notif-bell {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 6px;
+  margin: 0;
+  color: var(--ink-soft);
+  cursor: pointer;
+  line-height: 0;
+}
+.notif-bell svg { width: 22px; height: 22px; stroke: currentColor; }
+.notif-bell .badge-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.6rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.notif-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 300px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px -16px var(--shadow);
+  z-index: 41;
+  text-align: left;
+}
+.notif-panel .notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+.notif-panel .notif-header h4 { margin: 0; font-size: 0.85rem; }
+.notif-panel .notif-header button {
+  font-size: 0.65rem;
+  padding: 0.25rem 0.55rem;
+}
+.notif-item {
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--ink);
+  cursor: pointer;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item.unread { background: var(--accent-soft); }
+.notif-item .notif-time {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.65rem;
+  color: var(--ink-soft);
+}
+.notif-empty {
+  padding: 1rem 0.9rem;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
 /* ---- Untere Navigation (Tab-Bar) ---- */
 .nav-bar {
   position: fixed;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { supabase, fetchCurrentEmployee, type Employee } from "./lib/supabase";
+import { NotificationBell } from "./components/NotificationBell";
 import { NavBar } from "./components/NavBar";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
@@ -41,6 +42,7 @@ export default function App() {
         <div className="brand-header">
           <h1>ELLA</h1>
           <div className="who">
+            <NotificationBell employee={employee} />
             <span>
               {employee.name}
               <br />

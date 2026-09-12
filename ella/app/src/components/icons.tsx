@@ -52,3 +52,12 @@ export function IconUsers() {
     </svg>
   );
 }
+
+export function IconBell() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 10.5a6 6 0 0 1 12 0c0 3 .9 4.7 1.7 5.6.3.3.1.9-.3.9H4.6c-.4 0-.6-.6-.3-.9.8-.9 1.7-2.6 1.7-5.6Z" />
+      <path d="M9.5 19.5a2.5 2.5 0 0 0 5 0" />
+    </svg>
+  );
+}

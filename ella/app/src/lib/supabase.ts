@@ -68,3 +68,53 @@ export async function fetchAppSettings(): Promise<AppSettings> {
   if (error || !data) return DEFAULT_APP_SETTINGS;
   return data as AppSettings;
 }
+
+export type AppNotification = {
+  id: string;
+  type: "shift_published" | "bake_plan_published" | "announcement";
+  body: string;
+  sent_at: string;
+  read_at: string | null;
+};
+
+export async function fetchMyNotifications(employeeId: string): Promise<AppNotification[]> {
+  const { data } = await supabase
+    .from("notifications_log")
+    .select("id,type,body,sent_at,read_at")
+    .eq("target_employee_id", employeeId)
+    .order("sent_at", { ascending: false })
+    .limit(20);
+  return (data as AppNotification[]) || [];
+}
+
+export async function markNotificationRead(id: string) {
+  await supabase.from("notifications_log").update({ read_at: new Date().toISOString() }).eq("id", id);
+}
+
+export async function markAllNotificationsRead(employeeId: string) {
+  await supabase
+    .from("notifications_log")
+    .update({ read_at: new Date().toISOString() })
+    .eq("target_employee_id", employeeId)
+    .is("read_at", null);
+}
+
+// Legt für jeden übergebenen Mitarbeiter eine Benachrichtigung an (z.B. nach
+// Veröffentlichen eines Plans oder einer neuen Ankündigung). channel ist
+// vorbereitet für einen künftigen externen Kanal (HA-Notify/Web-Push), wird
+// aktuell aber nur in-app angezeigt.
+export async function notifyEmployees(
+  employeeIds: string[],
+  type: AppNotification["type"],
+  body: string
+) {
+  if (employeeIds.length === 0) return;
+  await supabase.from("notifications_log").insert(
+    employeeIds.map((target_employee_id) => ({
+      type,
+      target_employee_id,
+      body,
+      channel: "web_push"
+    }))
+  );
+}

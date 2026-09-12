@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchAppSettings, supabase } from "../lib/supabase";
+import { fetchAppSettings, notifyEmployees, supabase } from "../lib/supabase";
 import {
   monthDaysMatching,
   toDateStr,
@@ -48,6 +48,15 @@ type BakeEntryRow = {
   status: "draft" | "published";
 };
 type BakeTeam = { id: string; name: string };
+type PendingSwap = {
+  id: string;
+  status: "accepted";
+  shift_id: string;
+  offered_to: string;
+  requested_by_employee: { name: string } | null;
+  offered_to_employee: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
+};
 
 export function AdminPlanning() {
   const [planMonth, setPlanMonth] = useState(() => monthStartOf(new Date()));
@@ -69,6 +78,8 @@ export function AdminPlanning() {
   const [bakeDays, setBakeDaysState] = useState<number[]>(savedBakeDays);
   const [savingSettings, setSavingSettings] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
+  const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
+  const [publishWarningAck, setPublishWarningAck] = useState(false);
   const dayRulesDirty = serviceDays.join() !== savedServiceDays.join() || bakeDays.join() !== savedBakeDays.join();
 
   const nextMonth = nextMonthStart(new Date());
@@ -87,7 +98,7 @@ export function AdminPlanning() {
   const bkDateStrs = bkDays.map(toDateStr);
 
   async function loadAll() {
-    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes] = await Promise.all([
+    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes, swapsRes] = await Promise.all([
       supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
@@ -96,7 +107,13 @@ export function AdminPlanning() {
       supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
       supabase.from("bake_teams").select("*"),
       supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
-      supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr)
+      supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr),
+      supabase
+        .from("shift_swap_requests")
+        .select(
+          "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
+        )
+        .eq("status", "accepted")
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
@@ -107,6 +124,7 @@ export function AdminPlanning() {
     setBakeTeams((teams.data as BakeTeam[]) || []);
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
+    setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
   }
 
   async function saveDeadline() {
@@ -233,9 +251,53 @@ export function AdminPlanning() {
     loadAll();
   }
 
-  async function publishMonth() {
-    await supabase.from("shifts").update({ status: "published" }).in("date", svcDateStrs).eq("status", "draft");
+  // Back-Einträge ohne zugeordnete Truppe — blockieren das Veröffentlichen,
+  // bis entweder eine Truppe gewählt wird oder der Admin bewusst überstimmt.
+  const unassignedBakeEntries = useMemo(
+    () => bakeEntries.filter((b) => b.status === "draft" && !b.bake_team_id),
+    [bakeEntries]
+  );
+
+  // Kollisions-Warnung: Mitglied einer Back-Truppe ist am selben Tag auch für
+  // eine Service-Schicht eingeteilt.
+  function collisionsFor(dateStr: string, teamId: string | null): string[] {
+    if (!teamId) return [];
+    const memberIds = new Set(employees.filter((e) => e.bake_team_id === teamId).map((e) => e.id));
+    const dayShifts = shifts.filter((s) => s.date === dateStr && s.employee_id);
+    return dayShifts.filter((s) => memberIds.has(s.employee_id as string)).map((s) => {
+      const emp = employees.find((e) => e.id === s.employee_id);
+      return emp?.name ?? "?";
+    });
+  }
+
+  async function publishMonth(force = false) {
+    if (!force && unassignedBakeEntries.length > 0) {
+      setPublishWarningAck(false);
+      return;
+    }
+    const { data: publishedShifts } = await supabase
+      .from("shifts")
+      .update({ status: "published" })
+      .in("date", svcDateStrs)
+      .eq("status", "draft")
+      .select("employee_id");
     await supabase.from("bake_plan_entries").update({ status: "published" }).in("date", bkDateStrs).eq("status", "draft");
+    const notifyIds = Array.from(
+      new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
+    );
+    await notifyEmployees(notifyIds, "shift_published", `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`);
+    setPublishWarningAck(false);
+    loadAll();
+  }
+
+  async function confirmSwap(swap: PendingSwap) {
+    await supabase.from("shifts").update({ employee_id: swap.offered_to }).eq("id", swap.shift_id);
+    await supabase.from("shift_swap_requests").update({ status: "confirmed" }).eq("id", swap.id);
+    loadAll();
+  }
+
+  async function declineSwap(swapId: string) {
+    await supabase.from("shift_swap_requests").update({ status: "declined" }).eq("id", swapId);
     loadAll();
   }
 
@@ -432,7 +494,56 @@ export function AdminPlanning() {
       <p style={{ fontSize: "0.72rem", color: "var(--ink-soft)", margin: "0 0 0.8rem" }}>
         Geplant wird immer der ganze Kalendermonat (nicht der Abrechnungszeitraum oben).
       </p>
-      <button onClick={publishMonth}>📣 Plan & Backplan für {monthLabel(planMonth)} veröffentlichen</button>
+      {unassignedBakeEntries.length > 0 && publishWarningAck && (
+        <div className="card card-attention">
+          <p className="hint warn" style={{ margin: 0 }}>
+            {unassignedBakeEntries.length} Backeintrag{unassignedBakeEntries.length > 1 ? "e" : ""} ohne zugeordnete
+            Truppe. Truppe zuweisen oder trotzdem veröffentlichen?
+          </p>
+          <button style={{ marginTop: "0.5rem" }} onClick={() => publishMonth(true)}>
+            Trotzdem veröffentlichen
+          </button>{" "}
+          <button className="ghost" onClick={() => setPublishWarningAck(false)}>
+            Abbrechen
+          </button>
+        </div>
+      )}
+      <button
+        onClick={() => {
+          if (unassignedBakeEntries.length > 0) setPublishWarningAck(true);
+          else publishMonth();
+        }}
+      >
+        📣 Plan & Backplan für {monthLabel(planMonth)} veröffentlichen
+      </button>
+
+      {pendingSwaps.length > 0 && (
+        <div className="card" style={{ marginTop: "1rem" }}>
+          <h3>Schichttausch-Bestätigungen</h3>
+          {pendingSwaps.map((s) => (
+            <div className="shift-line" key={s.id}>
+              <span className="tag">
+                {s.shifts ? new Date(s.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+              </span>
+              <span>
+                {s.requested_by_employee?.name} → {s.offered_to_employee?.name}
+              </span>
+              <span className="row-actions">
+                <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmSwap(s)}>
+                  Bestätigen
+                </button>
+                <button
+                  className="ghost"
+                  style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                  onClick={() => declineSwap(s.id)}
+                >
+                  Ablehnen
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <h3>
         Dienstplan ({savedServiceDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")}, {monthLabel(planMonth)})
@@ -520,47 +631,56 @@ export function AdminPlanning() {
                 </tr>
               </thead>
               <tbody>
-                {dayEntries.map((b) => (
-                  <tr key={b.id}>
-                    <td>
-                      <select
-                        value={b.cake_item_id}
-                        onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
-                      >
-                        {cakeItems.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        value={b.quantity}
-                        min={1}
-                        style={{ width: "4rem" }}
-                        onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
-                      />
-                    </td>
-                    <td>
-                      <select
-                        value={b.bake_team_id ?? ""}
-                        onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
-                      >
-                        <option value="">– wählen –</option>
-                        {bakeTeams.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <button className="ghost" style={{padding:"0.3rem 0.55rem"}} onClick={() => deleteBakeEntry(b.id)}>✕</button>
-                    </td>
-                  </tr>
-                ))}
+                {dayEntries.map((b) => {
+                  const collisions = collisionsFor(dateStr, b.bake_team_id);
+                  return (
+                    <tr key={b.id}>
+                      <td>
+                        <select
+                          value={b.cake_item_id}
+                          onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
+                        >
+                          {cakeItems.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          value={b.quantity}
+                          min={1}
+                          style={{ width: "4rem" }}
+                          onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          value={b.bake_team_id ?? ""}
+                          onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
+                        >
+                          <option value="">– wählen –</option>
+                          {bakeTeams.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                        {!b.bake_team_id && <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>Keine Truppe</p>}
+                        {collisions.length > 0 && (
+                          <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>
+                            ⚠ {collisions.join(", ")} hat heute auch Service-Schicht
+                          </p>
+                        )}
+                      </td>
+                      <td>
+                        <button className="ghost" style={{padding:"0.3rem 0.55rem"}} onClick={() => deleteBakeEntry(b.id)}>✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             <button className="ghost" onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>

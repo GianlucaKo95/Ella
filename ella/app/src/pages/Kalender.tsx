@@ -35,13 +35,43 @@ export function Kalender({ employee }: { employee: Employee }) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [billingStartDay, setBillingStartDay] = useState(1);
   const [ownPeriodShifts, setOwnPeriodShifts] = useState<Shift[]>([]);
+  const [colleagues, setColleagues] = useState<{ id: string; name: string }[]>([]);
+  const [swapPickerFor, setSwapPickerFor] = useState<string | null>(null);
+  const [swapTarget, setSwapTarget] = useState("");
+  const [swapRequestedShifts, setSwapRequestedShifts] = useState<Set<string>>(new Set());
 
   const grid = useMemo(() => monthGrid(monthStart), [monthStart]);
   const todayStr = toDateStr(new Date());
 
   useEffect(() => {
     fetchAppSettings().then((s) => setBillingStartDay(s.billing_period_start_day));
+    supabase
+      .from("employees")
+      .select("id,name")
+      .eq("active", true)
+      .neq("id", employee.id)
+      .order("name")
+      .then(({ data }) => setColleagues(data || []));
+    supabase
+      .from("shift_swap_requests")
+      .select("shift_id")
+      .eq("requested_by", employee.id)
+      .eq("status", "pending")
+      .then(({ data }) => setSwapRequestedShifts(new Set((data || []).map((r) => r.shift_id))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function offerSwap(shiftId: string) {
+    if (!swapTarget) return;
+    const { error } = await supabase
+      .from("shift_swap_requests")
+      .insert({ shift_id: shiftId, requested_by: employee.id, offered_to: swapTarget });
+    if (!error) {
+      setSwapRequestedShifts((prev) => new Set(prev).add(shiftId));
+      setSwapPickerFor(null);
+      setSwapTarget("");
+    }
+  }
 
   const period = useMemo(() => billingPeriod(new Date(), billingStartDay), [billingStartDay]);
 
@@ -177,15 +207,57 @@ export function Kalender({ employee }: { employee: Employee }) {
           </h3>
           {selectedShifts.length === 0 && <p style={{ color: "var(--ink-soft)" }}>Keine Schichten an diesem Tag.</p>}
           {selectedShifts.map((s) => (
-            <div className="shift-line" key={s.id}>
-              <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
-              <span>
-                {s.employee_id === employee.id ? "Ich" : s.employees?.name ?? "—"}
-                {s.role_tag ? ` · ${s.role_tag}` : ""}
-              </span>
-              <span className="who">
-                {s.start_time}–{s.end_time}
-              </span>
+            <div key={s.id}>
+              <div className="shift-line">
+                <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
+                <span>
+                  {s.employee_id === employee.id ? "Ich" : s.employees?.name ?? "—"}
+                  {s.role_tag ? ` · ${s.role_tag}` : ""}
+                </span>
+                <span className="who">
+                  {s.start_time}–{s.end_time}
+                </span>
+              </div>
+              {s.employee_id === employee.id && (
+                <>
+                  {swapRequestedShifts.has(s.id) ? (
+                    <p className="hint" style={{ margin: "0 0 0.6rem" }}>
+                      Tauschanfrage gestellt – wartet auf Antwort.
+                    </p>
+                  ) : swapPickerFor === s.id ? (
+                    <div className="row-actions" style={{ margin: "0 0 0.6rem" }}>
+                      <select style={{ flex: 1 }} value={swapTarget} onChange={(e) => setSwapTarget(e.target.value)}>
+                        <option value="">Kolleg:in wählen…</option>
+                        {colleagues.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                        disabled={!swapTarget}
+                        onClick={() => offerSwap(s.id)}
+                      >
+                        Anbieten
+                      </button>
+                      <button
+                        className="ghost"
+                        style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                        onClick={() => setSwapPickerFor(null)}
+                      >
+                        Abbrechen
+                      </button>
+                    </div>
+                  ) : (
+                    <p style={{ margin: "0 0 0.6rem" }}>
+                      <button className="ghost" style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }} onClick={() => setSwapPickerFor(s.id)}>
+                        Tauschen
+                      </button>
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           ))}
         </div>

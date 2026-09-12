@@ -46,8 +46,12 @@
 | H2 | Mitarbeiter mit Back-Truppe öffnet Home | Karte "Nächste Backschicht" zeigt die nächsten veröffentlichten Backtermine seiner Truppe |
 | H3 | Mitarbeiter hat für den kommenden Monat noch nicht eingereicht (§2.2) | Popup erscheint beim Öffnen von Home; "Jetzt eintragen" führt zu `/profil`; "Später" blendet das Popup nur für die aktuelle Sitzung aus |
 | H4 | Mitarbeiter hat bereits eingereicht | Kein Popup |
+| H5 | Mitarbeiter öffnet Home an einem Tag, an dem mehrere Kollegen eingeteilt sind | Karte "Heute im Dienst" zeigt **alle** veröffentlichten Schichten des Tages (nicht nur die eigene), je mit Name und Zeit |
+| H6 | An einem Tag ohne veröffentlichte Schicht | "Heute im Dienst" zeigt einen Leerzustand-Hinweis, keine Fehlermeldung |
 | K1 | Mitarbeiter öffnet Kalender | Monatsgrid zeigt den aktuellen Monat, eigene Schichten sind optisch hervorgehoben, Klick auf einen Tag zeigt alle Schichten dieses Tages |
 | K2 | Mitarbeiter navigiert zu einem anderen Monat | Grid aktualisiert sich auf den neu gewählten Monat; die Stundenstatistik bleibt unverändert (bezieht sich auf den Abrechnungszeitraum, §2.6, nicht auf den angezeigten Monat) |
+| K3 | Mitarbeiter öffnet Detailansicht eines Tages mit eigener Schicht, klickt "Tauschen" | Kollegen-Auswahl erscheint; nach Auswahl + "Anbieten" wird eine `shift_swap_requests`-Zeile angelegt (siehe §2.15) |
+| K4 | Für eine Schicht besteht bereits eine offene Tauschanfrage | Statt "Tauschen" erscheint der Hinweis "Tauschanfrage gestellt – wartet auf Antwort", kein erneutes Anbieten möglich |
 | PR1 | Mitarbeiter öffnet Profil | Name-Feld, die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten und Ausnahmen sind alle auf einem Screen verfügbar |
 
 ### 2.6 Admin-Einstellungen: Abrechnungszeitraum
@@ -98,7 +102,9 @@
 | B1 | Admin legt Backeintrag für einen laut aktuellen Einstellungen nicht erlaubten Wochentag an | Trigger `check_bake_plan_day` lehnt ab (siehe C4) |
 | B2 | Mitarbeiter aus Truppe 2 ruft veröffentlichten Backplan ab | Sieht nur Einträge mit `bake_team_id` = Truppe 2 |
 | B3 | Mitarbeiter aus Truppe 2 ruft Backplan-Einträge von Truppe 1 direkt per ID ab | RLS verweigert |
-| B4 | Backeintrag ohne zugewiesene Truppe wird veröffentlicht | Für Mitarbeiter nicht sichtbar (kein `bake_team_id`-Match) — Admin muss vor Veröffentlichung zuweisen; **Akzeptanzkriterium: UI soll das vor dem Veröffentlichen sichtbar machen** (offener Punkt, siehe §4) |
+| B4 | Admin klickt "veröffentlichen", während mindestens ein Backeintrag im Monat keine Truppe hat | Veröffentlichung wird nicht sofort ausgeführt; eine Warnung mit Anzahl der betroffenen Einträge erscheint, mit Möglichkeit "Trotzdem veröffentlichen" oder "Abbrechen" |
+| B5 | Admin klickt in der Warnung (B4) "Trotzdem veröffentlichen" | Veröffentlichung läuft wie gewohnt durch, Backeintrag bleibt ohne Truppe (für Mitarbeiter weiterhin unsichtbar, kein `bake_team_id`-Match) |
+| B6 | Ein Truppenmitglied ist am selben Tag auch für eine Service-Schicht eingeteilt | Inline-Warnung direkt am betroffenen Backeintrag zeigt den Namen des Mitglieds — **keine** harte Sperre, Admin kann trotzdem speichern/veröffentlichen |
 
 ### 2.11 Rollen & Rechte
 | # | Szenario | Erwartung |
@@ -120,6 +126,29 @@
 | P1 | App wird auf dem Smartphone "zum Home-Bildschirm hinzufügen" | Installiert sich als eigenständige App (Manifest vorhanden) |
 | P2 | Aufruf ohne Netzverbindung, nachdem die App einmal geladen wurde | Service Worker liefert zumindest die App-Shell aus (kein Totalausfall) |
 
+### 2.14 In-App-Benachrichtigungen (Glocke)
+| # | Szenario | Erwartung |
+|---|---|---|
+| NT1 | Admin veröffentlicht einen Monat | Jeder Mitarbeiter mit mind. einer neu veröffentlichten Schicht erhält eine Benachrichtigung vom Typ `shift_published` |
+| NT2 | Admin postet eine Ankündigung | Alle anderen aktiven Mitarbeiter erhalten eine Benachrichtigung vom Typ `announcement` mit dem Ankündigungstext |
+| NT3 | Mitarbeiter mit ungelesenen Benachrichtigungen öffnet die App | Glocke zeigt einen Badge mit der Anzahl ungelesener Einträge |
+| NT4 | Mitarbeiter klickt eine einzelne Benachrichtigung im Dropdown an | Diese wird als gelesen markiert (`read_at` gesetzt), Badge-Zahl sinkt um 1 |
+| NT5 | Mitarbeiter klickt "Alle als gelesen" | Alle eigenen offenen Benachrichtigungen werden als gelesen markiert, Badge verschwindet |
+| NT6 | Mitarbeiter A versucht per direktem API-Call, Benachrichtigungen von Mitarbeiter B zu lesen oder als gelesen zu markieren | RLS verweigert (`target_employee_id` muss der eigenen entsprechen, außer Admin) |
+| NT7 | Mitarbeiter versucht, selbst eine Benachrichtigung anzulegen (API-Call) | RLS verweigert (Insert nur für `admin`) |
+
+### 2.15 Schichttausch
+| # | Szenario | Erwartung |
+|---|---|---|
+| T1 | Mitarbeiter A bietet eine eigene veröffentlichte Schicht Kollegen B an | `shift_swap_requests`-Zeile mit `status='pending'` wird angelegt; Button zeigt danach "Tauschanfrage gestellt" statt erneut "Tauschen" |
+| T2 | Mitarbeiter A versucht, eine Schicht zum Tausch anzubieten, auf die aktuell ein anderer Mitarbeiter eingeteilt ist (API-Call mit fremder `shift_id`) | Trigger `check_swap_request_owner` lehnt ab |
+| T3 | Mitarbeiter A bietet sich selbst eine Schicht an (`offered_to = requested_by`) | DB-Constraint `swap_not_to_self` lehnt ab |
+| T4 | Mitarbeiter B sieht auf Home eine eingehende Anfrage und klickt "Annehmen" | Status wird `accepted`, `responded_at` gesetzt; Anfrage erscheint danach bei Admin unter "Schichttausch-Bestätigungen" |
+| T5 | Mitarbeiter B klickt "Ablehnen" | Status wird `declined`; Schicht bleibt unverändert bei A |
+| T6 | Admin bestätigt eine angenommene Anfrage | `shifts.employee_id` wird auf B umgeschrieben, Anfrage-Status wird `confirmed` |
+| T7 | Admin lehnt eine angenommene Anfrage ab | Status wird `declined`, `shifts.employee_id` bleibt bei A |
+| T8 | Mitarbeiter C (weder A noch B) versucht, die Anfrage per API-Call zu lesen | RLS verweigert |
+
 ## 3. Akzeptanzkriterien für "fertig" (Definition of Done, MVP)
 - [ ] Mitarbeiter kann wiederkehrende Verfügbarkeit + Ausnahmen selbst pflegen.
 - [ ] Mitarbeiter kann Verfügbarkeit für den nächsten Monat erst einreichen, wenn sie für alle aktuell relevanten Tage (Service ∪ Backen, admin-einstellbar) vollständig ist; Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag.
@@ -129,10 +158,13 @@
 - [ ] Kein Mitarbeiter kann Daten anderer Mitarbeiter einsehen oder verändern (per RLS erzwungen, nicht nur per UI verborgen).
 - [ ] Alle Regelverstöße (falscher Wochentag für Schicht/Backen laut aktuellen Einstellungen, Rollen-Tag in Spätschicht) werden von der Datenbank abgelehnt, nicht nur vom UI verhindert.
 - [ ] Admin kann Service-/Back-Tage, Abrechnungszeitraum und Back-Truppen ohne Code-Änderung anpassen.
+- [ ] Mitarbeiter werden beim Veröffentlichen eines Plans und bei neuen Ankündigungen in der App benachrichtigt (Glocke mit Badge).
+- [ ] Mitarbeiter können eigene veröffentlichte Schichten einem Kollegen zum Tausch anbieten; der Tausch wird erst nach Admin-Bestätigung tatsächlich wirksam.
 
 ## 4. Offene Risiken / vor Launch zu klären
 1. **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist. Für einen Kalenderfeed ist das üblich (kein Login im Kalender-Client), aber die ID sollte durch einen nicht erratbaren Zugriffstoken ersetzt werden (z. B. separates `calendar_token`-Feld pro Mitarbeiter statt der UUID direkt), bevor das live geht.
-2. **Benachrichtigungen**: `notifications_log` existiert, aber es versendet aktuell niemand etwas (kein HA-Notify-/Web-Push-Trigger beim Veröffentlichen oder bei neuen Ankündigungen). Muss vor Launch ergänzt werden, sonst merken Mitarbeiter eine Veröffentlichung nicht.
-3. **Backplan ohne Truppe**: Siehe B4 — admin-seitige Warnung fehlt noch.
-4. **Kapazität je Truppe**: Es gibt keine Prüfung, ob eine Truppe an einem Tag bereits anderweitig eingeteilt ist (z. B. Truppenmitglied hat an dem Tag auch Servicedienst), insbesondere wenn Service- und Back-Tage (§2.7) admin-seitig so eingestellt werden, dass sie sich überlappen.
+2. **Benachrichtigungen nur in-app**: `notifications_log` wird jetzt beim Veröffentlichen und bei Ankündigungen befüllt und in der Glocke angezeigt (§2.14), aber es gibt noch keinen echten externen Push (HA-Notify/Web-Push) — ein Mitarbeiter merkt eine Veröffentlichung erst, wenn er die App wieder öffnet oder die Glocke das nächste 60s-Poll macht.
+3. **Backplan ohne Truppe**: jetzt mit Warnung vor dem Veröffentlichen abgefangen (§2.10, B4/B5) statt stillschweigend unsichtbar zu bleiben.
+4. **Kapazität je Truppe**: jetzt als Inline-Warnung sichtbar (§2.10, B6), aber weiterhin keine harte Sperre — bleibt bewusst organisatorische Verantwortung des Admins.
 5. **Abrechnungszeitraum im Kalender**: ist über `app_settings.billing_period_start_day` admin-einstellbar (Default: 1 = Kalendermonat), siehe §2.6. Offen bleibt, den tatsächlich gewünschten Start-Tag einmalig mit dem Admin/Chef abzustimmen.
+6. **Schichttausch ohne Eignungsprüfung**: Beim Anbieten wird nicht automatisch geprüft, ob der Kollege laut Verfügbarkeit an dem Tag überhaupt könnte — Admin sieht das erst bei der finalen Bestätigung, nicht vorher im Tausch-Dialog selbst.
