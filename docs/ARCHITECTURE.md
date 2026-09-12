@@ -12,11 +12,11 @@ Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme werden digitalisiert:
 
 ## 3. Tech-Stack (konsistent mit bestehenden Projekten: Polaris, SwapBid, Daily Nest Plans)
 - **Frontend**: React + Vite + TypeScript, PWA (installierbar, offline-fähiger Grundshell)
-- **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für ICS-Feed und Namens-Login)
+- **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für ICS-Feed und Erstpasswort-Vergabe)
 - **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, Ingress), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
 
 ## 4. Kernmodule
-1. **Auth & Mitarbeiterverwaltung** (Login wie bei Wizzo: eigenen Namen aus einer Liste antippen, kein Passwort; Rollen: `admin`, `employee`)
+1. **Auth & Mitarbeiterverwaltung** (Login wie bei Wizzo: Name aus einer Liste antippen + eigenes Passwort, keine E-Mail; Rollen: `admin`, `employee`)
 2. **Verfügbarkeiten** (dauerhaft wiederkehrend + Ausnahmen je Datum, monatlicher Einreichungs-Stichtag)
 3. **Schichtplanung** (Admin erstellt Plan auf Basis der Verfügbarkeiten, Veröffentlichung)
 4. **Kuchenplanung** (Backliste pro Tag, Mengen, Zuordnung zu einer Back-Truppe)
@@ -141,13 +141,18 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 ## 11. Monatlicher Verfügbarkeits-Stichtag
 `availability_deadlines` (ein Stichtag pro Monat) + `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (§8/§9) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
 
-## 12. Login ohne Passwort (Namensauswahl wie bei Wizzo)
+## 12. Login mit Name + Passwort, ohne E-Mail (wie bei Wizzo)
 Login-Bildschirm zeigt alle aktiven Mitarbeiternamen (`list_login_names()`, security-definer
-Funktion, vor dem Login aufrufbar). Antippen des eigenen Namens ruft die Edge Function
-`login-by-name` auf, die per Service-Role-Key eine Supabase-Session für den zugehörigen
-Auth-User ausstellt (legt beim allerersten Antippen automatisch ein Login-Konto an und
-verknüpft `employees.auth_user_id`). Es gibt keine zusätzliche Kennung (Passwort/PIN) —
-bewusste Entscheidung für ein Team-Gerät im Café, siehe §14.
+Funktion, vor dem Login aufrufbar, liefert je Mitarbeiter auch `has_account`). Antippen des
+eigenen Namens fragt das Passwort ab. Erster Login (`has_account = false`): Passwort wird
+selbst festgelegt, die Edge Function `set-password` legt dafür per Service-Role-Key das
+Auth-Konto an (`admin.createUser`, verknüpft `employees.auth_user_id`) — mit einer aus der
+`employee.id` abgeleiteten, nie versendeten Adresse anstelle einer echten E-Mail, da Supabase
+Auth ein E-Mail-Feld erwartet. Jeder spätere Login läuft ganz regulär über
+`supabase.auth.signInWithPassword()` mit derselben Adresse, ohne weiteren Edge-Function-Umweg.
+Ein bereits vergebenes Passwort kann darüber nicht überschrieben werden (`set-password` lehnt
+ab, wenn `auth_user_id` schon gesetzt ist) — ein Passwort-Reset ist aktuell nur direkt in
+Supabase möglich, siehe §14.
 
 ## 13. Kalender-Export (ICS)
 Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
@@ -158,7 +163,7 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 - **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
 - **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.
-- **Namens-Login ohne zweiten Faktor**: Wer den Namen einer Kollegin/eines Kollegen antippt, ist als diese Person eingeloggt — kein Passwort, kein PIN. Bewusst gewählt für ein gemeinsames Gerät im Café (wie bei Wizzo); setzt voraus, dass das Gerät selbst physisch abgesichert ist. Bei Bedarf später um einen optionalen PIN pro Mitarbeiter erweiterbar, ohne den Grundfluss zu ändern.
+- **Kein Passwort-Reset im Admin-UI**: Vergisst ein Mitarbeiter sein Passwort, hilft aktuell nur ein manueller Eingriff direkt in Supabase (Auth-User löschen, `employees.auth_user_id` auf `null` setzen, danach kann der Name erneut ein Erstpasswort festlegen) — ein Admin-Button dafür ist eine naheliegende nächste Iteration.
 - Mehrere Cafés/Standorte: aktuell bewusst single-tenant angenommen.
 
 ## 15. Addon-Grundgerüst
