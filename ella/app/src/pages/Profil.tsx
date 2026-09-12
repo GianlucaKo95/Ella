@@ -15,13 +15,17 @@ type AvailabilityEntry = {
   note: string | null;
 };
 
-export function Availability({ employee }: { employee: Employee }) {
+export function Profil({ employee, onEmployeeChanged }: { employee: Employee; onEmployeeChanged?: () => void }) {
   const [entries, setEntries] = useState<AvailabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [newDate, setNewDate] = useState("");
   const [newDateAvailable, setNewDateAvailable] = useState(true);
   const [deadline, setDeadline] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+
+  const [name, setName] = useState(employee.name);
+  const [savingName, setSavingName] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -46,8 +50,21 @@ export function Availability({ employee }: { employee: Employee }) {
 
   useEffect(() => {
     load();
+    setName(employee.name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee.id]);
+
+  async function saveName() {
+    if (!name.trim() || name.trim() === employee.name) return;
+    setSavingName(true);
+    setNameSaved(false);
+    const { error } = await supabase.rpc("update_my_name", { new_name: name.trim() });
+    setSavingName(false);
+    if (!error) {
+      setNameSaved(true);
+      onEmployeeChanged?.();
+    }
+  }
 
   const recurring = DAYS.map((_, idx) =>
     entries.find((e) => e.kind === "recurring" && e.day_of_week === idx)
@@ -99,14 +116,32 @@ export function Availability({ employee }: { employee: Employee }) {
 
   return (
     <div>
-      <h2>Meine Verfügbarkeit</h2>
+      <h2>Profil</h2>
+
+      <div className="card">
+        <h3>Name</h3>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input
+            style={{ flex: 1 }}
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setNameSaved(false);
+            }}
+          />
+          <button onClick={saveName} disabled={savingName || !name.trim() || name.trim() === employee.name}>
+            Speichern
+          </button>
+        </div>
+        {nameSaved && <p style={{ color: "var(--mint)", margin: "0.5rem 0 0", fontSize: "0.8rem" }}>Gespeichert ✅</p>}
+      </div>
 
       <div className={`card ${submittedAt ? "" : isLate ? "card-attention" : ""}`}>
         <h3>Verfügbarkeit für {monthLabel(nextMonth)}</h3>
         {deadline && (
           <p style={{ margin: "0 0 8px" }}>
             Stichtag: <strong>{new Date(deadline).toLocaleDateString("de-DE")}</strong>
-            {isLate && !submittedAt && <span style={{ color: "var(--attention, crimson)" }}> — überfällig!</span>}
+            {isLate && !submittedAt && <span style={{ color: "var(--attention)" }}> — überfällig!</span>}
           </p>
         )}
         {submittedAt ? (
@@ -126,7 +161,7 @@ export function Availability({ employee }: { employee: Employee }) {
       </div>
 
       <div className="card">
-        <h3>Dauerhaft (jede Woche)</h3>
+        <h3>Dauerhafte Verfügbarkeiten</h3>
         {loading ? (
           <p>Lädt…</p>
         ) : (
@@ -163,7 +198,7 @@ export function Availability({ employee }: { employee: Employee }) {
       </div>
 
       <div className="card">
-        <h3>Ausnahme für ein bestimmtes Datum</h3>
+        <h3>Ausnahmen</h3>
         <p>
           <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />{" "}
           <select

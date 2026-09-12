@@ -240,6 +240,117 @@ button.ghost {
   color: var(--ink-soft);
 }
 
+/* ---- Schicht-Zeilen (Home) ---- */
+.shift-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.shift-line:last-child { border-bottom: none; }
+.shift-line .who {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.tag {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---- Kalender (Monatsansicht) ---- */
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+.cal-header h3 { margin: 0; }
+.cal-header .nav-btns { display: flex; gap: 6px; }
+.cal-header .nav-btns button {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+}
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.cal-weekdays span {
+  text-align: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+button.cal-day {
+  position: relative;
+  min-height: 52px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-weight: 400;
+}
+.cal-day.outside { opacity: 0.35; }
+.cal-day.today .cal-day-num {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.cal-day.own { background: var(--accent-soft); }
+.cal-day-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.cal-day-dots {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.cal-dot.own { background: var(--accent); }
+.cal-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 0.9rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+.cal-legend span { display: flex; align-items: center; gap: 5px; }
+.cal-legend .cal-dot { width: 8px; height: 8px; }
+
 /* ---- Badges / Pillen ---- */
 .badge {
   display: inline-block;

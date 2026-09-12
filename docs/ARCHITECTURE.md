@@ -77,20 +77,27 @@ notifications_log
 
 RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte (status='published') Shifts/Backpläne (inkl. seiner eigenen Back-Truppe); `admin` sieht/schreibt alles.
 
-## 6a. Monatlicher Verfügbarkeits-Stichtag
-Mitarbeiter müssen ihre Verfügbarkeit für den **kompletten nächsten Monat** bis zu einem vom
-Admin gesetzten Stichtag eingetragen haben (Tabelle `availability_deadlines`, ein Eintrag pro
-Monat). "Komplett" heißt: für alle relevanten Wochentage (Mi–So) liegt ein wiederkehrender
-Eintrag (kann/kann nicht) vor — Ausnahmen für einzelne Daten kommen zusätzlich obendrauf.
-Erst wenn das erfüllt ist, kann der Mitarbeiter aktiv "einreichen"
-(`availability_submissions`, ein Eintrag pro Mitarbeiter + Monat). Der Admin sieht in der
-Planungsansicht, wer für den kommenden Monat schon eingereicht hat und wer nicht — als
-Grundlage, um vor dem Stichtag nachzuhaken.
-
 ## 7. Kalender-Export (ICS)
 Pro Mitarbeiter ein ICS-Feed (Edge Function, per token abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
 
+## 6a. Monatlicher Verfügbarkeits-Stichtag
+Siehe Datenmodell: `availability_deadlines` (ein Stichtag pro Monat, vom Admin gesetzt) und `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (Mi–So) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
+
+## 6b. Ankündigungen ("Aktuelles") & eigener Anzeigename
+- `announcements`: einfache News/Ankündigungen vom Admin/Chef an alle Mitarbeiter (lesbar für alle eingeloggten Nutzer, schreibbar nur von `admin`). Erscheinen auf dem Home-Screen.
+- `update_my_name(new_name text)`: `SECURITY DEFINER`-Funktion, über die sich ein Mitarbeiter ausschließlich seinen eigenen Anzeigenamen ändern kann (Rolle, Truppe, Aktiv-Status bleiben admin-exklusiv, da es dafür keine offene Update-Policy auf `employees` gibt).
+
+## 6c. Mitarbeiter-Ansicht: 3 Screens (Bottom-Navigation)
+Die Mitarbeiter-Sicht ist in genau drei über die Navbar erreichbare Screens gegliedert (Admin behält zusätzlich "Planung" und "Team"):
+
+- **Home** (`/home`): Übersicht der eigenen anstehenden (veröffentlichten) Schichten; falls der Mitarbeiter einer Back-Truppe zugeordnet ist (`bake_team_id` gesetzt), zusätzlich die nächsten Backtermine dieser Truppe; ein Hinweis-Popup, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt direkt ins Profil, dismissable); Rubrik "Aktuelles" mit den News aus `announcements` (Admin kann dort direkt neue Einträge verfassen).
+- **Kalender** (`/kalender`): Monatsansicht im Stil von Apple Kalender (Grid mit führenden/nachfolgenden Tagen der Nachbarmonate). Zeigt alle veröffentlichten Schichten des Monats, eigene Schichten werden farblich hervorgehoben (Punkt/Hintergrund), Klick auf einen Tag zeigt die Details (wer arbeitet wann). Oben eine Statistik-Zeile mit den voraussichtlichen eigenen Stunden im aktuell angezeigten Kalendermonat (= angenommener Abrechnungszeitraum, siehe offene Fragen) sowie der Anzahl eigener Schichten. ICS-Abo-Link bleibt hier verfügbar.
+- **Profil** (`/profil`): editierbarer Anzeigename (über `update_my_name`), darunter die dauerhaften (wiederkehrenden) Verfügbarkeiten je Wochentag sowie die Ausnahmen (Override je Einzeldatum) — inklusive der Stichtag-/Einreichen-Karte aus §6a.
+
+Die früheren eigenständigen Screens "Verfügbarkeit", "Plan" und "Backplan" wurden zugunsten dieser drei Screens entfernt; ihre Inhalte sind in Profil bzw. Kalender/Home aufgegangen.
+
 ## 8. Offene Architekturfragen (für nächste Iteration)
+- **Abrechnungszeitraum**: Für die "voraussichtlichen Stunden" im Kalender wird aktuell der Kalendermonat als Abrechnungszeitraum angenommen. Falls das Café einen abweichenden Abrechnungszeitraum hat (z. B. nicht am Monatsersten beginnend), muss das noch konfigurierbar gemacht werden.
 - Mehrere Cafés/Standorte jemals relevant, oder bewusst single-tenant? (Aktuell: single-tenant angenommen)
 - Annahme (bitte bestätigen): In der **Spätschicht gibt es keine Küche/Service-Trennung** — alle machen dort Service/Theke. Nur in der **Frühschicht** wird nach Küche/Service unterschieden. `staffing_requirements` bildet das je Wochentag + Schichttyp (+ Rolle bei Früh) ab, damit der Admin beim Planen sofort sieht, ob eine Schicht unter-/überbesetzt ist.
 

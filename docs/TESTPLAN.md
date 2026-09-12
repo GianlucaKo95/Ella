@@ -57,6 +57,31 @@
 | I2 | Unveröffentlichte Termine | Tauchen im ICS-Feed nicht auf |
 | I3 | Fremde `employee_id` im ICS-Link eingesetzt | **Sicherheitslücke, siehe §4** — aktuell keine Auth-Prüfung in der Edge Function |
 
+### 2.1b Aktuelles (Ankündigungen)
+| # | Szenario | Erwartung |
+|---|---|---|
+| A1 | Admin verfasst eine Ankündigung auf dem Home-Screen | Eintrag landet in `announcements`, erscheint sofort (nach Reload der Liste) bei allen Mitarbeitern auf Home |
+| A2 | Mitarbeiter versucht, per direktem API-Call eine Ankündigung zu schreiben | RLS verweigert (`announcements_write_admin` nur für `admin`) |
+| A3 | Mitarbeiter ruft Ankündigungen ab | Sieht alle (kein Truppen-/Rollenfilter vorgesehen — News sind für alle) |
+
+### 2.1c Eigener Anzeigename
+| # | Szenario | Erwartung |
+|---|---|---|
+| N1 | Mitarbeiter ändert im Profil seinen Namen und speichert | `update_my_name` aktualisiert nur `employees.name` der eigenen Zeile; Kopfzeile/Begrüßung zeigt danach den neuen Namen |
+| N2 | Mitarbeiter versucht per RPC, den Namen eines Kollegen zu ändern (fremde `employee_id` einschleusen) | Nicht möglich — die Funktion verwendet ausschließlich `current_employee_id()`, es gibt keinen Parameter für eine fremde ID |
+| N3 | Leerer oder nur aus Leerzeichen bestehender Name wird übergeben | Funktion wirft eine Exception, kein Update |
+
+### 2.1d Home/Kalender/Profil (Mitarbeiter-Navigation)
+| # | Szenario | Erwartung |
+|---|---|---|
+| H1 | Mitarbeiter ohne Back-Truppe (`bake_team_id = null`) öffnet Home | Karte "Nächste Backschicht" wird nicht angezeigt |
+| H2 | Mitarbeiter mit Back-Truppe öffnet Home | Karte "Nächste Backschicht" zeigt die nächsten veröffentlichten Backtermine seiner Truppe |
+| H3 | Mitarbeiter hat für den kommenden Monat noch nicht eingereicht (§2.1a) | Popup erscheint beim Öffnen von Home; "Jetzt eintragen" führt zu `/profil`; "Später" blendet das Popup nur für die aktuelle Sitzung aus |
+| H4 | Mitarbeiter hat bereits eingereicht | Kein Popup |
+| K1 | Mitarbeiter öffnet Kalender | Monatsgrid zeigt den aktuellen Monat, eigene Schichten sind optisch hervorgehoben, Klick auf einen Tag zeigt alle Schichten dieses Tages |
+| K2 | Mitarbeiter navigiert zu einem anderen Monat | Grid und Stundenstatistik aktualisieren sich auf den neu gewählten Monat |
+| P1b | Mitarbeiter öffnet Profil | Name-Feld, dauerhafte Verfügbarkeiten und Ausnahmen sind alle auf einem Screen verfügbar |
+
 ### 2.6 PWA / Offline
 | # | Szenario | Erwartung |
 |---|---|---|
@@ -77,3 +102,4 @@
 2. **Benachrichtigungen**: `notifications_log` existiert, aber es versendet aktuell niemand etwas (kein HA-Notify-/Web-Push-Trigger beim Veröffentlichen). Muss vor Launch ergänzt werden, sonst merken Mitarbeiter eine Veröffentlichung nicht.
 3. **Backplan ohne Truppe**: Siehe B4 — admin-seitige Warnung fehlt noch.
 4. **Kapazität je Truppe**: Es gibt keine Prüfung, ob eine Truppe an einem Tag bereits anderweitig eingeteilt ist (z. B. Truppenmitglied hat an dem Tag auch Servicedienst). Sollte vor Launch zumindest als Hinweis in der Admin-Planung auftauchen.
+5. **Abrechnungszeitraum im Kalender**: Die "voraussichtlichen Stunden" auf dem Kalender-Screen werden aktuell als Summe der eigenen veröffentlichten Schichten im angezeigten Kalendermonat berechnet. Falls der tatsächliche Abrechnungszeitraum des Cafés nicht dem Kalendermonat entspricht, muss das vor Launch mit dem Admin/Chef abgeglichen und ggf. konfigurierbar gemacht werden.

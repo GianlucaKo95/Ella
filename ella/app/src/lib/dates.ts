@@ -53,3 +53,19 @@ export function monthLabel(monthStart: Date): string {
 export function toMonthStr(monthStart: Date): string {
   return toDateStr(monthStart).slice(0, 7) + "-01";
 }
+
+// 1. des Monats, der `anyDate` enthält
+export function monthStartOf(anyDate: Date): Date {
+  return new Date(anyDate.getFullYear(), anyDate.getMonth(), 1);
+}
+
+export function addMonths(monthStart: Date, delta: number): Date {
+  return new Date(monthStart.getFullYear(), monthStart.getMonth() + delta, 1);
+}
+
+// 6 Wochen (42 Tage), Mo..So, inkl. führender/nachfolgender Tage aus
+// Nachbarmonaten — für eine Apple-Kalender-artige Monatsansicht
+export function monthGrid(monthStart: Date): Date[] {
+  const firstWeekStart = addDays(monthStart, -isoDayOfWeek(monthStart));
+  return Array.from({ length: 42 }, (_, i) => addDays(firstWeekStart, i));
+}

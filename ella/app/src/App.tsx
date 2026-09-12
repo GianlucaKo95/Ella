@@ -3,9 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { supabase, fetchCurrentEmployee, type Employee } from "./lib/supabase";
 import { NavBar } from "./components/NavBar";
 import { Login } from "./pages/Login";
-import { Availability } from "./pages/Availability";
-import { Plan } from "./pages/Plan";
-import { BakePlan } from "./pages/BakePlan";
+import { Home } from "./pages/Home";
+import { Kalender } from "./pages/Kalender";
+import { Profil } from "./pages/Profil";
 import { AdminPlanning } from "./pages/AdminPlanning";
 import { AdminEmployees } from "./pages/AdminEmployees";
 
@@ -56,16 +56,16 @@ export default function App() {
         </p>
         <NavBar employee={employee} />
         <Routes>
-          <Route path="/verfuegbarkeit" element={<Availability employee={employee} />} />
-          <Route path="/plan" element={<Plan employee={employee} />} />
-          <Route path="/backplan" element={<BakePlan employee={employee} />} />
+          <Route path="/home" element={<Home employee={employee} />} />
+          <Route path="/kalender" element={<Kalender employee={employee} />} />
+          <Route path="/profil" element={<Profil employee={employee} onEmployeeChanged={refresh} />} />
           {employee.role === "admin" && (
             <>
               <Route path="/admin/planung" element={<AdminPlanning />} />
               <Route path="/admin/mitarbeiter" element={<AdminEmployees />} />
             </>
           )}
-          <Route path="*" element={<Navigate to="/verfuegbarkeit" replace />} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </div>
     </BrowserRouter>
