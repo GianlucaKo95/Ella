@@ -38,7 +38,13 @@ type ShiftRow = {
   employee_id: string | null;
   status: "draft" | "published";
 };
-type CakeItem = { id: string; name: string; default_unit: string };
+type CakeItem = {
+  id: string;
+  name: string;
+  default_unit: string;
+  ingredients: string | null;
+  recipe_note: string | null;
+};
 type BakeEntryRow = {
   id: string;
   date: string;
@@ -79,6 +85,10 @@ export function AdminPlanning() {
   const [bakeDays, setBakeDaysState] = useState<number[]>(savedBakeDays);
   const [savingSettings, setSavingSettings] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
+  const [newCakeName, setNewCakeName] = useState("");
+  const [newCakeUnit, setNewCakeUnit] = useState("blech");
+  const [newCakeIngredients, setNewCakeIngredients] = useState("");
+  const [newCakeRecipe, setNewCakeRecipe] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
@@ -105,7 +115,7 @@ export function AdminPlanning() {
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
       supabase.from("shifts").select("*").in("date", svcDateStrs),
-      supabase.from("cake_items").select("*"),
+      supabase.from("cake_items").select("*").order("name"),
       supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
       supabase.from("bake_teams").select("*"),
       supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
@@ -187,6 +197,35 @@ export function AdminPlanning() {
 
   async function setEmployeeTeam(employeeId: string, teamId: string | null) {
     await supabase.from("employees").update({ bake_team_id: teamId }).eq("id", employeeId);
+    loadAll();
+  }
+
+  async function addCakeItem() {
+    if (!newCakeName.trim()) return;
+    await supabase.from("cake_items").insert({
+      name: newCakeName.trim(),
+      default_unit: newCakeUnit.trim() || "stück",
+      ingredients: newCakeIngredients.trim() || null,
+      recipe_note: newCakeRecipe.trim() || null
+    });
+    setNewCakeName("");
+    setNewCakeUnit("blech");
+    setNewCakeIngredients("");
+    setNewCakeRecipe("");
+    loadAll();
+  }
+
+  async function updateCakeItem(id: string, patch: Partial<CakeItem>) {
+    await supabase.from("cake_items").update(patch).eq("id", id);
+    loadAll();
+  }
+
+  async function deleteCakeItem(id: string) {
+    const { error } = await supabase.from("cake_items").delete().eq("id", id);
+    if (error) {
+      alert("Kuchen wird noch in der Backplanung verwendet und kann nicht gelöscht werden.");
+      return;
+    }
     loadAll();
   }
 
@@ -450,6 +489,89 @@ export function AdminPlanning() {
           />
           <button className="ghost" onClick={addBakeTeam}>+ Truppe anlegen</button>
         </p>
+      </div>
+
+      <div className="card">
+        <h3>Kuchen</h3>
+        <p style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
+          Nur hier hinterlegte Kuchen stehen bei der Backplanung zur Auswahl.
+        </p>
+        {cakeItems.map((c) => (
+          <div key={c.id} style={{ borderTop: "1px solid var(--border)", paddingTop: "0.7rem", marginTop: "0.7rem" }}>
+            <div className="row-actions">
+              <input
+                style={{ flex: 1 }}
+                defaultValue={c.name}
+                onBlur={(e) => e.target.value.trim() && e.target.value !== c.name && updateCakeItem(c.id, { name: e.target.value.trim() })}
+              />
+              <input
+                style={{ width: "5.5rem" }}
+                defaultValue={c.default_unit}
+                onBlur={(e) =>
+                  e.target.value.trim() && e.target.value !== c.default_unit && updateCakeItem(c.id, { default_unit: e.target.value.trim() })
+                }
+              />
+              <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteCakeItem(c.id)}>
+                ✕
+              </button>
+            </div>
+            <p style={{ margin: "0.5rem 0 0" }}>
+              <label className="label-caps">
+                Zutaten
+                <br />
+                <textarea
+                  style={{ width: "100%", marginTop: 4 }}
+                  rows={2}
+                  defaultValue={c.ingredients ?? ""}
+                  onBlur={(e) => e.target.value !== (c.ingredients ?? "") && updateCakeItem(c.id, { ingredients: e.target.value || null })}
+                />
+              </label>
+            </p>
+            <p style={{ margin: "0.5rem 0 0" }}>
+              <label className="label-caps">
+                Backanleitung
+                <br />
+                <textarea
+                  style={{ width: "100%", marginTop: 4 }}
+                  rows={3}
+                  defaultValue={c.recipe_note ?? ""}
+                  onBlur={(e) => e.target.value !== (c.recipe_note ?? "") && updateCakeItem(c.id, { recipe_note: e.target.value || null })}
+                />
+              </label>
+            </p>
+          </div>
+        ))}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.9rem", marginTop: "0.9rem" }}>
+          <p className="row-actions">
+            <input style={{ flex: 1 }} placeholder="Name des neuen Kuchens" value={newCakeName} onChange={(e) => setNewCakeName(e.target.value)} />
+            <input style={{ width: "5.5rem" }} placeholder="Einheit" value={newCakeUnit} onChange={(e) => setNewCakeUnit(e.target.value)} />
+          </p>
+          <p>
+            <label className="label-caps">
+              Zutaten
+              <br />
+              <textarea
+                style={{ width: "100%", marginTop: 4 }}
+                rows={2}
+                value={newCakeIngredients}
+                onChange={(e) => setNewCakeIngredients(e.target.value)}
+              />
+            </label>
+          </p>
+          <p>
+            <label className="label-caps">
+              Backanleitung
+              <br />
+              <textarea
+                style={{ width: "100%", marginTop: 4 }}
+                rows={3}
+                value={newCakeRecipe}
+                onChange={(e) => setNewCakeRecipe(e.target.value)}
+              />
+            </label>
+          </p>
+          <button className="ghost" onClick={addCakeItem}>+ Kuchen anlegen</button>
+        </div>
       </div>
 
       <div className="card">

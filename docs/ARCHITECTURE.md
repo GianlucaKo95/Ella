@@ -73,8 +73,9 @@ staffing_requirements                     -- Personalbedarf fürs Admin-UI
   role_tag (nullable, nur für 'frueh'),
   required_count
 
-cake_items
-  id, name, default_unit ('stück'|'blech'|...), recipe_note
+cake_items                                -- Kuchen-Stammdaten, nur vom Admin gepflegt
+  id, name, default_unit ('stück'|'blech'|...),
+  ingredients (Zutaten, Freitext), recipe_note (Backanleitung, Freitext)
 
 bake_plan_entries                         -- Backplan, außerhalb Öffnungszeiten
   id, date, cake_item_id, quantity,
@@ -135,7 +136,7 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 - **Profil** (`/profil`): editierbarer Anzeigename (`update_my_name`), die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten je Wochentag, Ausnahmen je Einzeldatum. Welche Wochentage für das Einreichen vollständig sein müssen, ergibt sich dynamisch aus `relevantDays` (§8) statt fest Mi–So zu sein.
 
 ## 10. Admin-Ansicht: Planung / Team
-- **Planung** (`/admin/planung`): Einstellungen (§8), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
+- **Planung** (`/admin/planung`): Einstellungen (§8), **Kuchen-Stammdaten** (Name, Einheit, Zutaten, Backanleitung — CRUD, nur hier gepflegte Kuchen stehen im Backplan weiter unten als Auswahl zur Verfügung, kein Freitext), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
 - **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar).
 
 ## 11. Monatlicher Verfügbarkeits-Stichtag
