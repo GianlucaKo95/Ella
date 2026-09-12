@@ -1,25 +1,31 @@
 import { NavLink } from "react-router-dom";
 import type { Employee } from "../lib/supabase";
+import { IconCalendarCheck, IconClipboard, IconCake, IconSliders, IconUsers } from "./icons";
 
 export function NavBar({ employee }: { employee: Employee }) {
   return (
     <nav className="nav-bar">
       <NavLink to="/verfuegbarkeit" className={({ isActive }) => (isActive ? "active" : "")}>
-        Meine Verfügbarkeit
+        <IconCalendarCheck />
+        Verfügbar
       </NavLink>
       <NavLink to="/plan" className={({ isActive }) => (isActive ? "active" : "")}>
-        Dienstplan
+        <IconClipboard />
+        Plan
       </NavLink>
       <NavLink to="/backplan" className={({ isActive }) => (isActive ? "active" : "")}>
-        Backplan
+        <IconCake />
+        Backen
       </NavLink>
       {employee.role === "admin" && (
         <>
           <NavLink to="/admin/planung" className={({ isActive }) => (isActive ? "active" : "")}>
-            Planung (Admin)
+            <IconSliders />
+            Planung
           </NavLink>
           <NavLink to="/admin/mitarbeiter" className={({ isActive }) => (isActive ? "active" : "")}>
-            Mitarbeiter
+            <IconUsers />
+            Team
           </NavLink>
         </>
       )}

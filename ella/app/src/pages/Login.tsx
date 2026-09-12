@@ -17,15 +17,23 @@ export function Login() {
   }
 
   return (
-    <div className="app-shell">
-      <div className="brand-header">
-        <img src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
-        <h1>Ella</h1>
+    <div className="app-shell" style={{ paddingBottom: "2rem" }}>
+      <div className="brand-header" style={{ justifyContent: "center", border: "none" }}>
+        <img
+          className="avatar"
+          style={{ width: 56, height: 56 }}
+          src="./logo.png"
+          alt="Frau Ella Kaufladen &amp; Café"
+        />
       </div>
+      <h1 style={{ textAlign: "center", letterSpacing: "0.08em" }}>ELLA</h1>
+      <p style={{ textAlign: "center", color: "var(--ink-soft)", marginTop: "-0.5rem" }}>
+        Schicht- &amp; Backplanung
+      </p>
       <div className="card">
         <form onSubmit={handleSubmit}>
           <p>
-            <label>
+            <label className="label-caps">
               E-Mail
               <br />
               <input
@@ -33,12 +41,12 @@ export function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                style={{ width: "100%" }}
+                style={{ width: "100%", marginTop: 6 }}
               />
             </label>
           </p>
           <p>
-            <label>
+            <label className="label-caps">
               Passwort
               <br />
               <input
@@ -46,13 +54,13 @@ export function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                style={{ width: "100%" }}
+                style={{ width: "100%", marginTop: 6 }}
               />
             </label>
           </p>
-          {error && <p style={{ color: "crimson" }}>{error}</p>}
-          <button type="submit" disabled={loading}>
-            {loading ? "Anmelden…" : "Anmelden"}
+          {error && <p style={{ color: "var(--attention)" }}>{error}</p>}
+          <button type="submit" disabled={loading} style={{ width: "100%" }}>
+            {loading ? "Anmelden…" : "Anmelden →"}
           </button>
         </form>
       </div>

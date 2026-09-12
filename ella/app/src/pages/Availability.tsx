@@ -145,18 +145,14 @@ export function Availability({ employee }: { employee: Employee }) {
                   <tr key={day}>
                     <td>{day}</td>
                     <td>
-                      <button
-                        onClick={() => setRecurring(idx, true)}
-                        style={{ fontWeight: available === true ? "bold" : "normal" }}
-                      >
-                        kann
-                      </button>{" "}
-                      <button
-                        onClick={() => setRecurring(idx, false)}
-                        style={{ fontWeight: available === false ? "bold" : "normal" }}
-                      >
-                        kann nicht
-                      </button>
+                      <div className="segmented">
+                        <button className={available === true ? "on" : ""} onClick={() => setRecurring(idx, true)}>
+                          kann
+                        </button>
+                        <button className={available === false ? "off-on" : ""} onClick={() => setRecurring(idx, false)}>
+                          kann nicht
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -177,13 +173,26 @@ export function Availability({ employee }: { employee: Employee }) {
             <option value="yes">kann</option>
             <option value="no">kann nicht</option>
           </select>{" "}
-          <button onClick={addOneTime}>Hinzufügen</button>
+          <button className="ghost" onClick={addOneTime}>Hinzufügen</button>
         </p>
-        <ul>
+        <ul style={{ listStyle: "none", padding: 0 }}>
           {oneTimeEntries.map((e) => (
-            <li key={e.id}>
-              {e.specific_date}: {e.available ? "kann" : "kann nicht"}{" "}
-              <button onClick={() => removeEntry(e.id)}>entfernen</button>
+            <li
+              key={e.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "0.4rem 0",
+                borderBottom: "1px solid var(--border)"
+              }}
+            >
+              <span>
+                {e.specific_date}: {e.available ? "kann" : "kann nicht"}
+              </span>
+              <button className="ghost" style={{ fontSize: "0.65rem", padding: "0.3rem 0.5rem" }} onClick={() => removeEntry(e.id)}>
+                entfernen
+              </button>
             </li>
           ))}
         </ul>

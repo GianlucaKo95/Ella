@@ -173,7 +173,7 @@ export function AdminPlanning() {
         <h3>Verfügbarkeits-Stichtag für {monthLabel(nextMonth)}</h3>
         <p>
           <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />{" "}
-          <button onClick={saveDeadline}>Stichtag speichern</button>
+          <button className="ghost" onClick={saveDeadline}>Stichtag speichern</button>
         </p>
         <table>
           <thead>
@@ -258,15 +258,15 @@ export function AdminPlanning() {
                       </select>
                     </td>
                     <td>
-                      <button onClick={() => deleteShift(s.id)}>✕</button>
+                      <button className="ghost" style={{padding:"0.3rem 0.55rem"}} onClick={() => deleteShift(s.id)}>✕</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <button onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
-            <button onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
-            <button onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+            <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
+            <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
+            <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
           </div>
         );
       })}
@@ -328,13 +328,13 @@ export function AdminPlanning() {
                       </select>
                     </td>
                     <td>
-                      <button onClick={() => deleteBakeEntry(b.id)}>✕</button>
+                      <button className="ghost" style={{padding:"0.3rem 0.55rem"}} onClick={() => deleteBakeEntry(b.id)}>✕</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <button onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>
+            <button className="ghost" onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>
           </div>
         );
       })}

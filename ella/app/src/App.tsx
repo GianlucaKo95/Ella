@@ -39,14 +39,21 @@ export default function App() {
     <BrowserRouter>
       <div className="app-shell">
         <div className="brand-header">
-          <img src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
-          <h1>Ella</h1>
+          <h1>ELLA</h1>
           <div className="who">
-            {employee.name} · {employee.role === "admin" ? "Admin" : "Mitarbeiterin"}
-            <br />
-            <button onClick={() => supabase.auth.signOut()}>Abmelden</button>
+            <span>
+              {employee.name}
+              <br />
+              {employee.role === "admin" ? "Admin" : "Mitarbeiterin"}
+            </span>
+            <img className="avatar" src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
           </div>
         </div>
+        <p style={{ margin: "-0.6rem 0 1rem" }}>
+          <button className="ghost" onClick={() => supabase.auth.signOut()} style={{ fontSize: "0.68rem", padding: "0.4rem 0.7rem" }}>
+            Abmelden
+          </button>
+        </p>
         <NavBar employee={employee} />
         <Routes>
           <Route path="/verfuegbarkeit" element={<Availability employee={employee} />} />
