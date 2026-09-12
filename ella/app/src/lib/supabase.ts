@@ -34,6 +34,33 @@ export type Employee = {
   bake_team_id: string | null;
 };
 
+export type LoginName = { id: string; name: string };
+
+// Namensliste für den Login-Bildschirm (wie bei Wizzo: Namen antippen statt
+// Passwort tippen). Läuft vor dem Login, daher über eine security-definer
+// Funktion statt über eine RLS-Policy auf die volle employees-Tabelle.
+export async function fetchLoginNames(): Promise<LoginName[]> {
+  const { data, error } = await supabase.rpc("list_login_names");
+  if (error) return [];
+  return (data as LoginName[]) || [];
+}
+
+// Stellt für den gewählten Mitarbeiter eine Session aus (kein Passwort nötig)
+// und übernimmt sie als aktuelle Supabase-Session.
+export async function loginByName(employeeId: string): Promise<string | null> {
+  const { data, error } = await supabase.functions.invoke("login-by-name", {
+    body: { employeeId }
+  });
+  if (error || !data?.access_token || !data?.refresh_token) {
+    return (data as { error?: string })?.error || error?.message || "Login fehlgeschlagen";
+  }
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token
+  });
+  return sessionError ? sessionError.message : null;
+}
+
 export async function fetchCurrentEmployee(): Promise<Employee | null> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) return null;

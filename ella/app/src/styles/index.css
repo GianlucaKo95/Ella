@@ -273,6 +273,20 @@ button.ghost {
   border: 1px solid var(--border);
 }
 
+/* ---- Login: Namen antippen statt Passwort ---- */
+.name-picker {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+}
+.name-picker button {
+  background: var(--surface-2);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 0.9rem 0.6rem;
+}
+.name-picker button:hover { background: var(--accent-soft); }
+
 /* ---- Segmentierte Auswahl (kann / kann nicht, Früh / Spät, ...) ---- */
 .segmented {
   display: inline-flex;

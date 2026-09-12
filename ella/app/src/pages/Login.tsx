@@ -1,19 +1,21 @@
-import { useState } from "react";
-import { supabase } from "../lib/supabase";
+import { useEffect, useState } from "react";
+import { fetchLoginNames, loginByName, type LoginName } from "../lib/supabase";
 
 export function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [names, setNames] = useState<LoginName[]>([]);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
+  useEffect(() => {
+    fetchLoginNames().then(setNames);
+  }, []);
+
+  async function handlePick(id: string) {
+    setLoadingId(id);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
-    setLoading(false);
+    const err = await loginByName(id);
+    if (err) setError(err);
+    setLoadingId(null);
   }
 
   return (
@@ -28,41 +30,22 @@ export function Login() {
       </div>
       <h1 style={{ textAlign: "center", letterSpacing: "0.08em" }}>ELLA</h1>
       <p style={{ textAlign: "center", color: "var(--ink-soft)", marginTop: "-0.5rem" }}>
-        Schicht- &amp; Backplanung
+        Wer bist du?
       </p>
       <div className="card">
-        <form onSubmit={handleSubmit}>
-          <p>
-            <label className="label-caps">
-              E-Mail
-              <br />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                style={{ width: "100%", marginTop: 6 }}
-              />
-            </label>
-          </p>
-          <p>
-            <label className="label-caps">
-              Passwort
-              <br />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                style={{ width: "100%", marginTop: 6 }}
-              />
-            </label>
-          </p>
-          {error && <p style={{ color: "var(--attention)" }}>{error}</p>}
-          <button type="submit" disabled={loading} style={{ width: "100%" }}>
-            {loading ? "Anmelden…" : "Anmelden →"}
-          </button>
-        </form>
+        {names.length === 0 && (
+          <p style={{ color: "var(--ink-soft)" }}>Noch keine Mitarbeiter angelegt.</p>
+        )}
+        <div className="name-picker">
+          {names.map((n) => (
+            <button key={n.id} disabled={loadingId !== null} onClick={() => handlePick(n.id)}>
+              {loadingId === n.id ? "…" : n.name}
+            </button>
+          ))}
+        </div>
+        {error && (
+          <p style={{ color: "var(--attention)", marginTop: "0.9rem" }}>{error}</p>
+        )}
       </div>
     </div>
   );
