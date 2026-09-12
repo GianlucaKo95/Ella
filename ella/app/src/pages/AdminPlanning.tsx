@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { fetchAppSettings, supabase } from "../lib/supabase";
 import {
   serviceDays,
   bakeDays,
@@ -8,7 +8,9 @@ import {
   DAY_NAMES,
   nextMonthStart,
   monthLabel,
-  toMonthStr
+  toMonthStr,
+  billingPeriod,
+  formatDayMonth
 } from "../lib/dates";
 
 type EmployeeRow = { id: string; name: string; active: boolean; bake_team_id: string | null };
@@ -57,9 +59,12 @@ export function AdminPlanning() {
   const [bakeTeams, setBakeTeams] = useState<BakeTeam[]>([]);
   const [deadline, setDeadline] = useState<string>("");
   const [submissions, setSubmissions] = useState<{ employee_id: string; submitted_at: string }[]>([]);
+  const [billingStartDay, setBillingStartDay] = useState(1);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
+  const previewPeriod = useMemo(() => billingPeriod(new Date(), billingStartDay), [billingStartDay]);
 
   const anchorDate = useMemo(() => new Date(anchor + "T00:00:00"), [anchor]);
   const svcDays = useMemo(() => serviceDays(anchorDate), [anchorDate]);
@@ -98,8 +103,16 @@ export function AdminPlanning() {
     loadAll();
   }
 
+  async function saveBillingStartDay(value: number) {
+    setSavingSettings(true);
+    await supabase.from("app_settings").update({ billing_period_start_day: value }).eq("id", true);
+    setBillingStartDay(value);
+    setSavingSettings(false);
+  }
+
   useEffect(() => {
     loadAll();
+    fetchAppSettings().then((s) => setBillingStartDay(s.billing_period_start_day));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor]);
 
@@ -168,6 +181,35 @@ export function AdminPlanning() {
   return (
     <div>
       <h2>Planung (Admin)</h2>
+
+      <div className="card">
+        <h3>Einstellungen</h3>
+        <div className="field">
+          <label>Abrechnungszeitraum beginnt am Tag des Monats</label>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <input
+              type="number"
+              min={1}
+              max={28}
+              style={{ width: "5rem" }}
+              value={billingStartDay}
+              onChange={(e) => setBillingStartDay(Number(e.target.value))}
+            />
+            <button
+              className="ghost"
+              disabled={savingSettings}
+              onClick={() => saveBillingStartDay(billingStartDay)}
+            >
+              Speichern
+            </button>
+          </div>
+          <p style={{ margin: "0.4rem 0 0", fontSize: "0.72rem", color: "var(--ink-soft)" }}>
+            Aktueller Zeitraum: {formatDayMonth(previewPeriod.start)}–{formatDayMonth(previewPeriod.end)} ·
+            gilt für die "voraussichtlichen Stunden" im Kalender jedes Mitarbeiters. 1 = klassischer
+            Kalendermonat.
+          </p>
+        </div>
+      </div>
 
       <div className="card">
         <h3>Verfügbarkeits-Stichtag für {monthLabel(nextMonth)}</h3>

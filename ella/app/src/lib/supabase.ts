@@ -45,3 +45,19 @@ export async function fetchCurrentEmployee(): Promise<Employee | null> {
   if (error) return null;
   return data as Employee;
 }
+
+export type AppSettings = {
+  billing_period_start_day: number;
+};
+
+const DEFAULT_APP_SETTINGS: AppSettings = { billing_period_start_day: 1 };
+
+export async function fetchAppSettings(): Promise<AppSettings> {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("billing_period_start_day")
+    .eq("id", true)
+    .maybeSingle();
+  if (error || !data) return DEFAULT_APP_SETTINGS;
+  return data as AppSettings;
+}

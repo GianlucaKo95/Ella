@@ -82,6 +82,14 @@
 | K2 | Mitarbeiter navigiert zu einem anderen Monat | Grid und Stundenstatistik aktualisieren sich auf den neu gewählten Monat |
 | P1b | Mitarbeiter öffnet Profil | Name-Feld, dauerhafte Verfügbarkeiten und Ausnahmen sind alle auf einem Screen verfügbar |
 
+### 2.1e Admin-Einstellungen (Abrechnungszeitraum)
+| # | Szenario | Erwartung |
+|---|---|---|
+| E1 | Admin ändert den Start-Tag des Abrechnungszeitraums und speichert | `app_settings.billing_period_start_day` wird aktualisiert; Vorschau-Zeitraum in der Admin-Ansicht aktualisiert sich sofort |
+| E2 | Mitarbeiter ruft danach den Kalender-Screen auf | "Voraussichtliche Stunden" und die Zeitraum-Anzeige basieren auf dem neuen Start-Tag |
+| E3 | Mitarbeiter versucht, `app_settings` per direktem API-Call zu ändern | RLS verweigert (`app_settings_update_admin` nur für `admin`) |
+| E4 | Ein Wert außerhalb 1–28 wird eingetragen | DB-Constraint lehnt ab (bewusst auf 28 begrenzt, damit der Start-Tag in jedem Monat existiert) |
+
 ### 2.6 PWA / Offline
 | # | Szenario | Erwartung |
 |---|---|---|
@@ -102,4 +110,4 @@
 2. **Benachrichtigungen**: `notifications_log` existiert, aber es versendet aktuell niemand etwas (kein HA-Notify-/Web-Push-Trigger beim Veröffentlichen). Muss vor Launch ergänzt werden, sonst merken Mitarbeiter eine Veröffentlichung nicht.
 3. **Backplan ohne Truppe**: Siehe B4 — admin-seitige Warnung fehlt noch.
 4. **Kapazität je Truppe**: Es gibt keine Prüfung, ob eine Truppe an einem Tag bereits anderweitig eingeteilt ist (z. B. Truppenmitglied hat an dem Tag auch Servicedienst). Sollte vor Launch zumindest als Hinweis in der Admin-Planung auftauchen.
-5. **Abrechnungszeitraum im Kalender**: Die "voraussichtlichen Stunden" auf dem Kalender-Screen werden aktuell als Summe der eigenen veröffentlichten Schichten im angezeigten Kalendermonat berechnet. Falls der tatsächliche Abrechnungszeitraum des Cafés nicht dem Kalendermonat entspricht, muss das vor Launch mit dem Admin/Chef abgeglichen und ggf. konfigurierbar gemacht werden.
+5. **Abrechnungszeitraum im Kalender**: ist jetzt über `app_settings.billing_period_start_day` admin-einstellbar (Default: 1 = Kalendermonat), siehe §2.1e. Offen bleibt nur, den tatsächlich gewünschten Start-Tag einmalig mit dem Admin/Chef abzustimmen.

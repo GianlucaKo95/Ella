@@ -96,8 +96,12 @@ Die Mitarbeiter-Sicht ist in genau drei über die Navbar erreichbare Screens geg
 
 Die früheren eigenständigen Screens "Verfügbarkeit", "Plan" und "Backplan" wurden zugunsten dieser drei Screens entfernt; ihre Inhalte sind in Profil bzw. Kalender/Home aufgegangen.
 
+## 6d. Admin-Einstellungen (app_settings)
+Singleton-Tabelle `app_settings` (eine feste Zeile, `id = true`) für global vom Admin/Chef einstellbare Parameter, lesbar für alle eingeloggten Nutzer, schreibbar nur für `admin`:
+- `billing_period_start_day` (1–28): an welchem Tag des Monats der Abrechnungszeitraum beginnt. `1` = klassischer Kalendermonat (Default). Wird in der Kalender-Ansicht der Mitarbeiter für die "voraussichtlichen Stunden" verwendet und ist in der Admin-Planung unter "Einstellungen" editierbar, inkl. Live-Vorschau des aktuell daraus resultierenden Zeitraums.
+
 ## 8. Offene Architekturfragen (für nächste Iteration)
-- **Abrechnungszeitraum**: Für die "voraussichtlichen Stunden" im Kalender wird aktuell der Kalendermonat als Abrechnungszeitraum angenommen. Falls das Café einen abweichenden Abrechnungszeitraum hat (z. B. nicht am Monatsersten beginnend), muss das noch konfigurierbar gemacht werden.
+- Der Abrechnungszeitraum ist jetzt admin-einstellbar (§6d) — weitere fachlich fixe Annahmen (Öffnungszeiten Do–So, Backtage Mi/Do/Fr, genau 3 Back-Truppen) sind bewusst weiterhin fest im Code/Schema verankert, da sie laut Auftrag unveränderlich sind. Falls sich das ändern sollte, wären sie nach demselben Muster (eigene `app_settings`-Felder) konfigurierbar zu machen.
 - Mehrere Cafés/Standorte jemals relevant, oder bewusst single-tenant? (Aktuell: single-tenant angenommen)
 - Annahme (bitte bestätigen): In der **Spätschicht gibt es keine Küche/Service-Trennung** — alle machen dort Service/Theke. Nur in der **Frühschicht** wird nach Küche/Service unterschieden. `staffing_requirements` bildet das je Wochentag + Schichttyp (+ Rolle bei Früh) ab, damit der Admin beim Planen sofort sieht, ob eine Schicht unter-/überbesetzt ist.
 

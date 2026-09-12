@@ -69,3 +69,18 @@ export function monthGrid(monthStart: Date): Date[] {
   const firstWeekStart = addDays(monthStart, -isoDayOfWeek(monthStart));
   return Array.from({ length: 42 }, (_, i) => addDays(firstWeekStart, i));
 }
+
+// Abrechnungszeitraum, der `refDate` enthält: beginnt am `startDay`. des
+// Monats und endet am Tag davor im Folgemonat (z.B. startDay=16 ->
+// 16.09.–15.10.). startDay=1 entspricht dem klassischen Kalendermonat.
+export function billingPeriod(refDate: Date, startDay: number): { start: Date; end: Date } {
+  const day = refDate.getDate();
+  const periodStartMonth = day >= startDay ? refDate.getMonth() : refDate.getMonth() - 1;
+  const start = new Date(refDate.getFullYear(), periodStartMonth, startDay);
+  const end = addDays(new Date(refDate.getFullYear(), periodStartMonth + 1, startDay), -1);
+  return { start, end };
+}
+
+export function formatDayMonth(d: Date): string {
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+}

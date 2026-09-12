@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase, type Employee } from "../lib/supabase";
+import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
 import { icsFeedUrl } from "../lib/ics";
-import { DAY_NAMES, addMonths, monthGrid, monthLabel, monthStartOf, toDateStr } from "../lib/dates";
+import {
+  DAY_NAMES,
+  addMonths,
+  billingPeriod,
+  formatDayMonth,
+  monthGrid,
+  monthLabel,
+  monthStartOf,
+  toDateStr
+} from "../lib/dates";
 
 type Shift = {
   id: string;
@@ -24,9 +33,17 @@ export function Kalender({ employee }: { employee: Employee }) {
   const [monthStart, setMonthStart] = useState(() => monthStartOf(new Date()));
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [billingStartDay, setBillingStartDay] = useState(1);
+  const [ownPeriodShifts, setOwnPeriodShifts] = useState<Shift[]>([]);
 
   const grid = useMemo(() => monthGrid(monthStart), [monthStart]);
   const todayStr = toDateStr(new Date());
+
+  useEffect(() => {
+    fetchAppSettings().then((s) => setBillingStartDay(s.billing_period_start_day));
+  }, []);
+
+  const period = useMemo(() => billingPeriod(new Date(), billingStartDay), [billingStartDay]);
 
   useEffect(() => {
     const rangeStart = toDateStr(grid[0]);
@@ -42,6 +59,19 @@ export function Kalender({ employee }: { employee: Employee }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthStart]);
 
+  // Eigene Stunden/Schichten im aktuellen Abrechnungszeitraum (admin-
+  // einstellbarer Zeitraum, unabhängig vom gerade angezeigten Monat im Grid).
+  useEffect(() => {
+    supabase
+      .from("shifts")
+      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees(name)")
+      .eq("status", "published")
+      .eq("employee_id", employee.id)
+      .gte("date", toDateStr(period.start))
+      .lte("date", toDateStr(period.end))
+      .then(({ data }) => setOwnPeriodShifts((data as unknown as Shift[]) || []));
+  }, [period, employee.id]);
+
   const shiftsByDate = useMemo(() => {
     const map = new Map<string, Shift[]>();
     for (const s of shifts) {
@@ -51,24 +81,11 @@ export function Kalender({ employee }: { employee: Employee }) {
     return map;
   }, [shifts]);
 
-  // Voraussichtliche Stunden: eigene veröffentlichte Schichten im
-  // aktuell angezeigten Kalendermonat (= Abrechnungszeitraum).
-  const projectedHours = useMemo(() => {
-    let total = 0;
-    for (const s of shifts) {
-      if (s.employee_id === employee.id && s.date.slice(0, 7) === toDateStr(monthStart).slice(0, 7)) {
-        total += hoursBetween(s.start_time, s.end_time);
-      }
-    }
-    return total;
-  }, [shifts, employee.id, monthStart]);
-
-  const ownShiftCount = useMemo(
-    () =>
-      shifts.filter((s) => s.employee_id === employee.id && s.date.slice(0, 7) === toDateStr(monthStart).slice(0, 7))
-        .length,
-    [shifts, employee.id, monthStart]
+  const projectedHours = useMemo(
+    () => ownPeriodShifts.reduce((total, s) => total + hoursBetween(s.start_time, s.end_time), 0),
+    [ownPeriodShifts]
   );
+  const ownShiftCount = ownPeriodShifts.length;
 
   const selectedShifts = selectedDate ? shiftsByDate.get(selectedDate) ?? [] : [];
 
@@ -86,6 +103,9 @@ export function Kalender({ employee }: { employee: Employee }) {
           <span className="l">Eigene Schichten</span>
         </div>
       </div>
+      <p style={{ margin: "-0.6rem 0 1rem", fontSize: "0.72rem", color: "var(--ink-soft)" }}>
+        Abrechnungszeitraum: {formatDayMonth(period.start)}–{formatDayMonth(period.end)}
+      </p>
 
       <div className="card">
         <div className="cal-header">
