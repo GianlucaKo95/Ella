@@ -6,6 +6,7 @@ import {
   addMonths,
   billingPeriod,
   formatDayMonth,
+  isoDayOfWeek,
   monthGrid,
   monthLabel,
   monthStartOf,
@@ -30,10 +31,13 @@ function hoursBetween(from: string, to: string): number {
 }
 
 export function Kalender({ employee }: { employee: Employee }) {
+  const todayStr = toDateStr(new Date());
   const [monthStart, setMonthStart] = useState(() => monthStartOf(new Date()));
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayStr);
   const [billingStartDay, setBillingStartDay] = useState(1);
+  const [serviceDays, setServiceDays] = useState<number[]>([3, 4, 5, 6]);
+  const [ownBakeDates, setOwnBakeDates] = useState<Set<string>>(new Set());
   const [ownPeriodShifts, setOwnPeriodShifts] = useState<Shift[]>([]);
   const [colleagues, setColleagues] = useState<{ id: string; name: string }[]>([]);
   const [swapPickerFor, setSwapPickerFor] = useState<string | null>(null);
@@ -42,10 +46,12 @@ export function Kalender({ employee }: { employee: Employee }) {
   const [swapRequestedShifts, setSwapRequestedShifts] = useState<Set<string>>(new Set());
 
   const grid = useMemo(() => monthGrid(monthStart), [monthStart]);
-  const todayStr = toDateStr(new Date());
 
   useEffect(() => {
-    fetchAppSettings().then((s) => setBillingStartDay(s.billing_period_start_day));
+    fetchAppSettings().then((s) => {
+      setBillingStartDay(s.billing_period_start_day);
+      setServiceDays(s.service_days);
+    });
     supabase
       .from("employees")
       .select("id,name")
@@ -103,6 +109,19 @@ export function Kalender({ employee }: { employee: Employee }) {
       .lte("date", rangeEnd)
       .order("start_time")
       .then(({ data }) => setShifts((data as unknown as Shift[]) || []));
+
+    if (employee.bake_team_id) {
+      supabase
+        .from("bake_plan_entries")
+        .select("date")
+        .eq("bake_team_id", employee.bake_team_id)
+        .eq("status", "published")
+        .gte("date", rangeStart)
+        .lte("date", rangeEnd)
+        .then(({ data }) => setOwnBakeDates(new Set((data || []).map((b) => b.date))));
+    } else {
+      setOwnBakeDates(new Set());
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthStart]);
 
@@ -135,6 +154,7 @@ export function Kalender({ employee }: { employee: Employee }) {
   const ownShiftCount = ownPeriodShifts.length;
 
   const selectedShifts = selectedDate ? shiftsByDate.get(selectedDate) ?? [] : [];
+  const selectedDateClosed = selectedDate ? !serviceDays.includes(isoDayOfWeek(new Date(selectedDate))) : false;
 
   return (
     <div>
@@ -180,24 +200,31 @@ export function Kalender({ employee }: { employee: Employee }) {
           {grid.map((d) => {
             const dateStr = toDateStr(d);
             const dayShifts = shiftsByDate.get(dateStr) ?? [];
-            const ownCount = dayShifts.filter((s) => s.employee_id === employee.id).length;
-            const otherCount = dayShifts.length - ownCount;
+            const ownShift = dayShifts.find((s) => s.employee_id === employee.id);
+            const otherCount = dayShifts.length - (ownShift ? 1 : 0);
             const outside = d.getMonth() !== monthStart.getMonth();
             const isToday = dateStr === todayStr;
+            const closed = !serviceDays.includes(isoDayOfWeek(d));
+            const hasBake = ownBakeDates.has(dateStr);
             return (
               <button
                 key={dateStr}
-                className={`cal-day ${outside ? "outside" : ""} ${isToday ? "today" : ""} ${ownCount > 0 ? "own" : ""}`}
+                className={`cal-day ${outside ? "outside" : ""} ${isToday ? "today" : ""} ${ownShift ? "own" : ""} ${closed ? "closed" : ""}`}
                 onClick={() => setSelectedDate(dateStr)}
                 style={{ border: "none" }}
               >
                 <span className="cal-day-num">{d.getDate()}</span>
-                <span className="cal-day-dots">
-                  {ownCount > 0 && <span className="cal-dot own" />}
-                  {Array.from({ length: Math.min(otherCount, 3) }).map((_, i) => (
-                    <span className="cal-dot" key={i} />
-                  ))}
-                </span>
+                {!closed && (
+                  <span className="cal-day-dots">
+                    {ownShift && <span className={`cal-dot own ${ownShift.shift_type}`} />}
+                    {hasBake && <span className="cal-dot bake" />}
+                    {otherCount > 3 ? (
+                      <span className="cal-day-more">+{otherCount}</span>
+                    ) : (
+                      Array.from({ length: otherCount }).map((_, i) => <span className="cal-dot" key={i} />)
+                    )}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -205,10 +232,16 @@ export function Kalender({ employee }: { employee: Employee }) {
 
         <div className="cal-legend">
           <span>
-            <span className="cal-dot own" /> Meine Schicht
+            <span className="cal-dot own frueh" /> Früh (eigen)
+          </span>
+          <span>
+            <span className="cal-dot own spaet" /> Spät (eigen)
           </span>
           <span>
             <span className="cal-dot" /> Kolleg:in
+          </span>
+          <span>
+            <span className="cal-dot bake" /> Backtermin
           </span>
         </div>
       </div>
@@ -222,7 +255,11 @@ export function Kalender({ employee }: { employee: Employee }) {
               month: "2-digit"
             })}
           </h3>
-          {selectedShifts.length === 0 && <p style={{ color: "var(--ink-soft)" }}>Keine Schichten an diesem Tag.</p>}
+          {selectedShifts.length === 0 && (
+            <p style={{ color: "var(--ink-soft)" }}>
+              {selectedDateClosed ? "Café geschlossen an diesem Tag." : "Keine Schichten an diesem Tag."}
+            </p>
+          )}
           {selectedShifts.map((s) => (
             <div key={s.id}>
               <div className="shift-line">

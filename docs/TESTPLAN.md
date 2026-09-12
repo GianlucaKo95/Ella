@@ -53,6 +53,13 @@
 | K3 | Mitarbeiter öffnet Detailansicht eines Tages mit eigener Schicht, klickt "Tauschen" | Kollegen-Auswahl erscheint; nach Auswahl + "Anbieten" wird eine `shift_swap_requests`-Zeile angelegt (siehe §2.15) |
 | K4 | Für eine Schicht besteht bereits eine offene Tauschanfrage | Statt "Tauschen" erscheint der Hinweis "Tauschanfrage gestellt – wartet auf Antwort", kein erneutes Anbieten möglich |
 | K5 | Mitarbeiter wählt beim Tauschen einen Kollegen, der laut eigener Angabe an dem Tag "kann nicht" eingetragen hat | Warnhinweis erscheint, "Anbieten" bleibt trotzdem klickbar (keine harte Sperre) |
+| K6 | Mitarbeiter öffnet Kalender | Heutiger Tag ist bereits als ausgewählt markiert, Detailkarte ist sofort sichtbar ohne vorher einen Tag antippen zu müssen |
+| K7 | Ein Tag im Grid ist laut `app_settings.service_days` kein Service-Tag | Tag wird schraffiert/gedimmt dargestellt; Klick darauf zeigt in der Detailkarte "Café geschlossen an diesem Tag" statt "Keine Schichten" |
+| K8 | Admin ändert die Service-Tage (§2.7) | Geschlossene Tage im Kalender-Grid aktualisieren sich entsprechend, ohne Code-Änderung |
+| K9 | Mitarbeiter hat an einem Tag eine Frühschicht, an einem anderen eine Spätschicht | Früh wird als gefüllter Punkt, Spät als Ring-Punkt dargestellt — beide optisch unterscheidbar, ohne den Tag antippen zu müssen |
+| K10 | Mitarbeiter mit Back-Truppe hat an einem Tag einen veröffentlichten Backtermin seiner Truppe | Tag zeigt zusätzlich einen rautenförmigen Back-Punkt im Grid |
+| K11 | Mitarbeiter ohne Back-Truppe | Kein Back-Punkt erscheint an irgendeinem Tag |
+| K12 | An einem Tag arbeiten mehr als 3 Kolleg:innen (ohne die eigene Schicht) | Statt einzelner Punkte erscheint "+N" mit der tatsächlichen Anzahl |
 | H7 | Mitarbeiter öffnet Home | "Meine Woche" zeigt alle 7 Tage ab heute, je Tag entweder die eigene Schicht oder "frei"; bei einer eigenen Schicht ist direkt ein "Tauschen"-Button vorhanden, ohne in den Kalender wechseln zu müssen |
 | PR1 | Mitarbeiter öffnet Profil | Name-Feld, die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten und Ausnahmen sind alle auf einem Screen verfügbar |
 

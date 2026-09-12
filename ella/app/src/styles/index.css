@@ -421,6 +421,16 @@ button.cal-day {
   color: var(--accent-ink);
 }
 .cal-day.own { background: var(--accent-soft); }
+.cal-day.closed {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--surface-2) 0px,
+    var(--surface-2) 5px,
+    var(--border) 5px,
+    var(--border) 6px
+  );
+}
+.cal-day.closed .cal-day-num { color: var(--ink-faint); }
 .cal-day-num {
   width: 20px;
   height: 20px;
@@ -436,6 +446,7 @@ button.cal-day {
   gap: 2px;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
 }
 .cal-dot {
   width: 6px;
@@ -443,16 +454,35 @@ button.cal-day {
   border-radius: 50%;
   background: var(--ink-faint);
 }
-.cal-dot.own { background: var(--accent); }
+.cal-dot.own.frueh { background: var(--accent); }
+.cal-dot.own.spaet {
+  background: transparent;
+  border: 1.5px solid var(--accent);
+  width: 5px;
+  height: 5px;
+}
+.cal-dot.bake {
+  background: var(--warn);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+.cal-day-more {
+  font-size: 0.56rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  line-height: 1;
+}
 .cal-legend {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   margin-top: 0.9rem;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--ink-soft);
+  flex-wrap: wrap;
 }
 .cal-legend span { display: flex; align-items: center; gap: 5px; }
 .cal-legend .cal-dot { width: 8px; height: 8px; }
+.cal-legend .cal-dot.own.spaet { width: 7px; height: 7px; }
 
 /* ---- Badges / Pillen ---- */
 .badge {
