@@ -1,0 +1,4 @@
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base:2026.08.0
+  amd64: ghcr.io/home-assistant/amd64-base:2026.08.0
+  armv7: ghcr.io/home-assistant/armv7-base:2026.08.0

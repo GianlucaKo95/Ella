@@ -172,11 +172,26 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 ```
 ella/
   config.yaml
+  build.yaml           # Basis-Image je Architektur (Multi-Arch-Build)
   Dockerfile
   run.sh
   rootfs/...
   app/                 # React/Vite PWA build
-  supabase/
-    migrations/
-    functions/
+supabase/
+  migrations/
+  functions/
 ```
+
+## 16. CI: Image-Build & Veröffentlichung
+`.github/workflows/build-addon.yaml` baut bei Push auf `main` (Pfad `ella/**`) die
+Multi-Arch-Images (aarch64, amd64, armv7) über die offiziellen `home-assistant/builder`-
+Actions und veröffentlicht sie unter der in `config.yaml` hinterlegten `image`-Adresse
+(`ghcr.io/gianlucako95/addon-ella`) auf GHCR — der Supervisor zieht dieses Image dann fertig
+gebaut, statt es beim Installieren lokal auf dem HA-Host zu bauen. Ohne diesen Workflow (oder
+ohne `image` in `config.yaml`) funktioniert die Installation als lokales Add-on trotzdem, der
+Supervisor baut dann selbst aus dem Dockerfile.
+
+Zwei manuelle Schritte bleiben nötig: das GHCR-Package muss nach dem ersten erfolgreichen Lauf
+einmalig auf "Public" gestellt werden (sonst kann der Supervisor es nicht ziehen), und
+`version` in `config.yaml` muss bei jedem Release erhöht werden — der Workflow taggt exakt mit
+diesem Wert, ohne Änderung erkennt der Supervisor kein Update.

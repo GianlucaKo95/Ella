@@ -8,8 +8,11 @@ Backtage: Mi, Do, Fr (außerhalb der Öffnungszeiten), aufgeteilt auf 3 feste Ba
 ## Struktur
 
 ```
+.github/workflows/
+  build-addon.yaml       # baut + published Multi-Arch-Image nach ghcr.io bei Push auf main
 ella/                   # Home Assistant Add-on
   config.yaml           # Addon-Manifest (Optionen: supabase_url, supabase_anon_key)
+  build.yaml            # Basis-Images je Architektur fürs Multi-Arch-Build
   Dockerfile
   run.sh                 # schreibt runtime-config.js aus den Addon-Optionen, startet nginx
   nginx.conf
@@ -32,16 +35,33 @@ docs/
    supabase link --project-ref <dein-projekt>
    supabase db push
    ```
-2. **Edge Function** deployen:
+2. **Edge Functions** deployen:
    ```
    supabase functions deploy ics-feed
+   supabase functions deploy set-password
    ```
-3. Ersten Admin-Mitarbeiter anlegen: in Supabase Auth einen User erstellen, dann in der
-   Tabelle `employees` eine Zeile mit `auth_user_id` = dessen User-ID und `role = 'admin'`
-   eintragen.
+3. Ersten Admin-Mitarbeiter anlegen: einen Eintrag in der Tabelle `employees` mit
+   `role = 'admin'` erstellen (Name reicht, `auth_user_id` wird beim ersten Login mit
+   Passwort automatisch verknüpft, siehe docs/ARCHITECTURE.md §12).
 4. **Addon installieren**: Repo in Home Assistant (Einstellungen → Add-ons → Add-on Store →
    Repositories) hinzufügen, "Ella" installieren, `supabase_url` und `supabase_anon_key`
-   in den Addon-Optionen eintragen, starten.
+   in den Addon-Optionen eintragen, starten. Der Supervisor zieht dabei standardmäßig das
+   von GitHub Actions gebaute Image (siehe unten) statt lokal zu bauen.
+
+## Image-Build (GitHub Actions)
+
+`.github/workflows/build-addon.yaml` baut bei jedem Push auf `main` (der `ella/` betrifft)
+Multi-Arch-Images (aarch64, amd64, armv7) und veröffentlicht sie nach
+`ghcr.io/gianlucako95/addon-ella`. Der Supervisor zieht dieses Image, statt es beim
+Installieren lokal auf dem HA-Host zu bauen.
+
+Zwei Dinge, die dafür einmalig bzw. bei jedem Release nötig sind:
+- **Package auf "public" stellen**: Nach dem allerersten erfolgreichen Workflow-Lauf unter
+  https://github.com/GianlucaKo95?tab=packages das neue Package `addon-ella` öffnen und die
+  Sichtbarkeit auf "Public" setzen — sonst kann der Supervisor es nicht ziehen.
+- **Version hochzählen**: `version` in `ella/config.yaml` muss bei jeder Änderung erhöht
+  werden. Der Workflow taggt das Image exakt mit diesem Wert; ohne Änderung erkennt der
+  Supervisor kein Update.
 
 ## Lokale Entwicklung der PWA
 
@@ -60,6 +80,5 @@ npm run dev
 - PWA-Icons (`icon-192.png`, `icon-512.png`) in `ella/app/public/` ergänzen.
 - Benachrichtigungen bei Veröffentlichung (HA-Notify / Web-Push) sind als TODO markiert —
   aktuell wird beim Veröffentlichen nur der Status auf `published` gesetzt, ohne Push.
-- Admin-Anlegen neuer Mitarbeiter erzeugt aktuell nur einen Platzhalter-Datensatz ohne
-  Login-Verknüpfung; die Verknüpfung mit `auth_user_id` muss noch automatisiert werden
-  (z. B. Einladungslink per Edge Function).
+- Kein Passwort-Reset im Admin-UI, falls ein Mitarbeiter sein Passwort vergisst (siehe
+  docs/ARCHITECTURE.md §14).
