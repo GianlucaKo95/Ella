@@ -269,7 +269,10 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
           </p>
         )}
         {submittedAt ? (
-          <p>✅ Eingereicht am {new Date(submittedAt).toLocaleDateString("de-DE")}.</p>
+          <p>
+            ✅ Eingereicht am {new Date(submittedAt).toLocaleDateString("de-DE")}. Du kannst deine Angaben unten
+            jederzeit noch ändern, bis der Admin den Dienstplan erstellt — jede Änderung wird sofort gespeichert.
+          </p>
         ) : (
           <p>
             {isComplete
