@@ -67,7 +67,7 @@ export default function App() {
           {employee.role === "admin" && (
             <>
               <Route path="/admin/planung" element={<AdminPlanning />} />
-              <Route path="/admin/mitarbeiter" element={<AdminEmployees />} />
+              <Route path="/admin/mitarbeiter" element={<AdminEmployees currentEmployeeId={employee.id} />} />
             </>
           )}
           <Route path="*" element={<Navigate to="/home" replace />} />

@@ -155,6 +155,18 @@ export async function removeMyAvatar(): Promise<string | null> {
   return error ? "Foto konnte nicht entfernt werden" : null;
 }
 
+// Admin löscht einen Mitarbeiter endgültig — löscht zuerst dessen Auth-User
+// (falls vorhanden), dann die employees-Zeile selbst. Braucht wie
+// resetEmployeePassword den Access-Token der aufrufenden Admin-Person.
+export async function deleteEmployee(employeeId: string): Promise<string | null> {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session) return "Nicht angemeldet";
+  const result = await callEdgeFunction("delete-employee", { employeeId }, session.access_token);
+  return result.ok ? null : result.error || "Mitarbeiter konnte nicht gelöscht werden";
+}
+
 export async function fetchCurrentEmployee(): Promise<Employee | null> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) return null;
