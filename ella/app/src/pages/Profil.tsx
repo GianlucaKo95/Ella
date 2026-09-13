@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
+import { useEffect, useRef, useState } from "react";
+import { fetchAppSettings, removeMyAvatar, supabase, uploadMyAvatar, type Employee } from "../lib/supabase";
 import { DAY_NAMES, MONTH_NAMES, RELEVANT_DAYS, relevantDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import { Avatar } from "../components/Avatar";
 
 const DAYS = DAY_NAMES;
 
@@ -39,6 +40,9 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [requiredDays, setRequiredDays] = useState<number[]>(RELEVANT_DAYS);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -79,6 +83,30 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
     setSavingName(false);
     if (!error) {
       setNameSaved(true);
+      onEmployeeChanged?.();
+    }
+  }
+
+  async function handleAvatarFile(file: File) {
+    setAvatarUploading(true);
+    setAvatarError(null);
+    const error = await uploadMyAvatar(file);
+    setAvatarUploading(false);
+    if (error) {
+      setAvatarError(error);
+    } else {
+      onEmployeeChanged?.();
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarUploading(true);
+    setAvatarError(null);
+    const error = await removeMyAvatar();
+    setAvatarUploading(false);
+    if (error) {
+      setAvatarError(error);
+    } else {
       onEmployeeChanged?.();
     }
   }
@@ -132,6 +160,33 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   return (
     <div>
       <h2>Profil</h2>
+
+      <div className="card">
+        <h3>Profilbild</h3>
+        <div className="row-actions" style={{ alignItems: "center" }}>
+          <Avatar name={employee.name} avatarUrl={employee.avatar_url} size={64} />
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleAvatarFile(file);
+            }}
+          />
+          <button className="ghost" onClick={() => avatarInputRef.current?.click()} disabled={avatarUploading}>
+            {avatarUploading ? "Lädt hoch…" : "Foto ändern"}
+          </button>
+          {employee.avatar_url && (
+            <button className="ghost" onClick={handleAvatarRemove} disabled={avatarUploading}>
+              Entfernen
+            </button>
+          )}
+        </div>
+        {avatarError && <p style={{ color: "var(--attention)", margin: "0.5rem 0 0", fontSize: "0.8rem" }}>{avatarError}</p>}
+      </div>
 
       <div className="card">
         <h3>Name</h3>

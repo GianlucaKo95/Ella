@@ -32,6 +32,7 @@ export type Employee = {
   role: "admin" | "employee";
   active: boolean;
   bake_team_id: string | null;
+  avatar_url: string | null;
 };
 
 export type LoginName = { id: string; name: string; has_account: boolean };
@@ -124,6 +125,34 @@ export async function resetEmployeePassword(employeeId: string): Promise<string 
   if (!session) return "Nicht angemeldet";
   const result = await callEdgeFunction("reset-password", { employeeId }, session.access_token);
   return result.ok ? null : result.error || "Passwort konnte nicht zurückgesetzt werden";
+}
+
+// Profilbild-Upload: eigene Datei in den eigenen Ordner "<auth.uid()>/…" der
+// öffentlichen Bucket "avatars" hochladen (RLS erlaubt Schreiben nur im
+// eigenen Ordner, Lesen ist öffentlich), dann die öffentliche URL per
+// SECURITY-DEFINER-Funktion in employees.avatar_url eintragen. Jeder Upload
+// bekommt einen neuen Dateinamen, damit die URL sich ändert und nicht per
+// Browser-/CDN-Cache veraltet bleibt.
+export async function uploadMyAvatar(file: File): Promise<string | null> {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return "Nicht angemeldet";
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "jpg";
+  const path = `${user.id}/${Date.now()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+    contentType: file.type || "image/jpeg"
+  });
+  if (uploadError) return "Foto konnte nicht hochgeladen werden";
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  const { error: rpcError } = await supabase.rpc("update_my_avatar_url", { new_url: data.publicUrl });
+  if (rpcError) return "Foto konnte nicht gespeichert werden";
+  return null;
+}
+
+export async function removeMyAvatar(): Promise<string | null> {
+  const { error } = await supabase.rpc("update_my_avatar_url", { new_url: null });
+  return error ? "Foto konnte nicht entfernt werden" : null;
 }
 
 export async function fetchCurrentEmployee(): Promise<Employee | null> {

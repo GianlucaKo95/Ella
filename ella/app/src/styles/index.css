@@ -57,6 +57,17 @@ h1, h2, h3, h4 {
   padding-bottom: 0.9rem;
   margin-bottom: 1rem;
 }
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-logo {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .brand-header h1 {
   font-size: 1.6rem;
   margin: 0;
@@ -72,15 +83,26 @@ h1, h2, h3, h4 {
   color: var(--ink-soft);
   text-align: right;
 }
-.brand-header .avatar {
+.avatar {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 3px solid var(--surface);
-  box-shadow: 0 0 0 2px var(--accent-soft);
   background: var(--surface-2);
   object-fit: cover;
   flex-shrink: 0;
+}
+.avatar.avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--accent);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.brand-header .avatar {
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 /* ---- Benachrichtigungs-Glocke ---- */
