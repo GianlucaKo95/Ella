@@ -92,6 +92,8 @@ export function AdminPlanning() {
   // Tage, an denen der Admin bewusst eine Ausnahme-Frühschicht freigeschaltet
   // hat, obwohl der Wochentag laut savedFruehDays normalerweise keine hat.
   const [fruehExceptionDates, setFruehExceptionDates] = useState<Set<string>>(new Set());
+  // Ausgewählte Uhrzeit im "+ Spät"-Dropdown je Tag (samstags 13/14 Uhr zur Wahl).
+  const [spaetTimeByDate, setSpaetTimeByDate] = useState<Record<string, string>>({});
   const [newTeamName, setNewTeamName] = useState("");
   const [newCakeName, setNewCakeName] = useState("");
   const [newCakeUnit, setNewCakeUnit] = useState("blech");
@@ -546,10 +548,21 @@ export function AdminPlanning() {
                   </button>
                 )}{" "}
                 {dow === 5 ? (
-                  <>
-                    <button className="ghost" onClick={() => addShift(dateStr, "spaet", null, "13:00", "19:00")}>+ Spät 13 Uhr</button>{" "}
-                    <button className="ghost" onClick={() => addShift(dateStr, "spaet", null, "14:00", "19:00")}>+ Spät 14 Uhr</button>
-                  </>
+                  <span className="row-actions" style={{ display: "inline-flex" }}>
+                    <select
+                      value={spaetTimeByDate[dateStr] ?? "13:00"}
+                      onChange={(e) => setSpaetTimeByDate((prev) => ({ ...prev, [dateStr]: e.target.value }))}
+                    >
+                      <option value="13:00">13:00 Uhr</option>
+                      <option value="14:00">14:00 Uhr</option>
+                    </select>
+                    <button
+                      className="ghost"
+                      onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "19:00")}
+                    >
+                      + Spät
+                    </button>
+                  </span>
                 ) : (
                   <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
                 )}
