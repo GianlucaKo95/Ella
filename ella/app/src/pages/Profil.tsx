@@ -33,6 +33,21 @@ function sameTime(a: string | null, b: string): boolean {
   return a != null && timeToMinutes(a) === timeToMinutes(b);
 }
 
+function choiceLabel(choice: DayChoice | null): string {
+  switch (choice) {
+    case "no":
+      return "kann nicht";
+    case "frueh":
+      return "Früh";
+    case "spaet":
+      return "Spät";
+    case "full":
+      return "ganztags";
+    default:
+      return "keine Angabe";
+  }
+}
+
 type AvailabilityEntry = {
   id: string;
   kind: "recurring" | "one_time";
@@ -71,6 +86,11 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  // Tage mit bereits veröffentlichtem Dienstplan — Verfügbarkeit dafür ist
+  // gesperrt (auch serverseitig per RLS, siehe Migration
+  // 0017_lock_availability_after_publish.sql), damit niemand nach der
+  // Zuweisung noch unbemerkt "kann nicht" einträgt.
+  const [publishedDates, setPublishedDates] = useState<Set<string>>(new Set());
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -92,7 +112,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
 
   async function load() {
     setLoading(true);
-    const [entriesRes, deadlineRes, submissionRes] = await Promise.all([
+    const [entriesRes, deadlineRes, submissionRes, publishedRes] = await Promise.all([
       supabase.from("availability_entries").select("*").eq("employee_id", employee.id).order("day_of_week"),
       supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
       supabase
@@ -100,11 +120,13 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
         .select("submitted_at")
         .eq("employee_id", employee.id)
         .eq("month", nextMonthStr)
-        .maybeSingle()
+        .maybeSingle(),
+      supabase.from("shifts").select("date").eq("status", "published")
     ]);
     setEntries((entriesRes.data as AvailabilityEntry[]) || []);
     setDeadline(deadlineRes.data?.deadline ?? null);
     setSubmittedAt(submissionRes.data?.submitted_at ?? null);
+    setPublishedDates(new Set(((publishedRes.data as { date: string }[]) || []).map((r) => r.date)));
     setLoading(false);
   }
 
@@ -200,8 +222,13 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
     load();
   }
 
-  const isComplete = relevantDates.every((d) => oneTimeByDate.has(toDateStr(d)));
-  const missingCount = relevantDates.filter((d) => !oneTimeByDate.has(toDateStr(d))).length;
+  // Ein gesperrter Tag (Dienstplan schon veröffentlicht) zählt nicht als
+  // "offen" — sonst könnte das Einreichen nie vollständig werden, falls der
+  // Admin einen Tag veröffentlicht, bevor die Person ihn ausgefüllt hat.
+  const isComplete = relevantDates.every((d) => oneTimeByDate.has(toDateStr(d)) || publishedDates.has(toDateStr(d)));
+  const missingCount = relevantDates.filter(
+    (d) => !oneTimeByDate.has(toDateStr(d)) && !publishedDates.has(toDateStr(d))
+  ).length;
   const isLate = deadline ? new Date() > new Date(deadline + "T23:59:59") : false;
 
   async function submitMonth() {
@@ -296,6 +323,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
                 const choice = choiceFor(oneTimeByDate.get(dateStr));
                 const specialDay = specialByDate.get(dateStr);
                 const hasFrueh = fruehDays.includes(isoDayOfWeek(d)) || specialDay?.frueh_exception === true;
+                const locked = publishedDates.has(dateStr);
                 return (
                   <tr key={dateStr}>
                     <td>
@@ -307,33 +335,39 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
                       )}
                     </td>
                     <td>
-                      <div className="segmented">
-                        {hasFrueh ? (
-                          <>
-                            <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
-                              kann nicht
-                            </button>
-                            <button className={choice === "frueh" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "frueh")}>
-                              Früh
-                            </button>
-                            <button className={choice === "spaet" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "spaet")}>
-                              Spät
-                            </button>
-                            <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
-                              ganztags
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
-                              kann
-                            </button>
-                            <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
-                              kann nicht
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {locked ? (
+                        <span className="hint" title="Dienstplan für diesen Tag bereits erstellt">
+                          🔒 {choiceLabel(choice)}
+                        </span>
+                      ) : (
+                        <div className="segmented">
+                          {hasFrueh ? (
+                            <>
+                              <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
+                                kann nicht
+                              </button>
+                              <button className={choice === "frueh" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "frueh")}>
+                                Früh
+                              </button>
+                              <button className={choice === "spaet" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "spaet")}>
+                                Spät
+                              </button>
+                              <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
+                                ganztags
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
+                                kann
+                              </button>
+                              <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
+                                kann nicht
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -383,8 +417,19 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             <option value="yes">kann</option>
             <option value="no">kann nicht</option>
           </select>{" "}
-          <button className="ghost" onClick={() => setDayAvailability(newDate, newDateAvailable ? "full" : "no")}>Hinzufügen</button>
+          <button
+            className="ghost"
+            disabled={publishedDates.has(newDate)}
+            onClick={() => setDayAvailability(newDate, newDateAvailable ? "full" : "no")}
+          >
+            Hinzufügen
+          </button>
         </p>
+        {publishedDates.has(newDate) && (
+          <p className="hint" style={{ marginTop: "0.3rem" }}>
+            🔒 Für dieses Datum ist der Dienstplan bereits erstellt, keine Änderung mehr möglich.
+          </p>
+        )}
         <ul style={{ listStyle: "none", padding: 0 }}>
           {extraEntries.map((e) => (
             <li
@@ -399,10 +444,13 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             >
               <span>
                 {e.specific_date}: {e.available ? "kann" : "kann nicht"}
+                {publishedDates.has(e.specific_date as string) && " 🔒"}
               </span>
-              <button className="ghost" style={{ fontSize: "0.65rem", padding: "0.3rem 0.5rem" }} onClick={() => removeEntry(e.id)}>
-                entfernen
-              </button>
+              {!publishedDates.has(e.specific_date as string) && (
+                <button className="ghost" style={{ fontSize: "0.65rem", padding: "0.3rem 0.5rem" }} onClick={() => removeEntry(e.id)}>
+                  entfernen
+                </button>
+              )}
             </li>
           ))}
         </ul>
