@@ -34,7 +34,9 @@ docs/
    supabase link --project-ref <dein-projekt>
    supabase db push
    ```
-2. **Edge Functions** deployen:
+2. **Edge Functions** deployen (`supabase/config.toml` setzt `verify_jwt = false` für
+   beide — sonst kann die Supabase-Plattform-JWT-Prüfung den Browser-CORS-Preflight
+   blockieren, siehe docs/ARCHITECTURE.md §12):
    ```
    supabase functions deploy ics-feed
    supabase functions deploy set-password
