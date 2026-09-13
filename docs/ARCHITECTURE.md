@@ -167,6 +167,7 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.
 - **Kein Passwort-Reset im Admin-UI**: Vergisst ein Mitarbeiter sein Passwort, hilft aktuell nur ein manueller Eingriff direkt in Supabase (Auth-User löschen, `employees.auth_user_id` auf `null` setzen, danach kann der Name erneut ein Erstpasswort festlegen) — ein Admin-Button dafür ist eine naheliegende nächste Iteration.
 - Mehrere Cafés/Standorte: aktuell bewusst single-tenant angenommen.
+- **Kein armv7 (32-bit) mehr unterstützt**: Der aktuelle `home-assistant/builder` (2026.06.0) baut nur noch aarch64/amd64 — 32-bit-Hosts (ältere Raspberry-Pi-Installationen mit 32-bit-OS) können das Add-on-Image daher nicht mehr ziehen; sie müssten es lokal aus dem Dockerfile bauen, was mangels 32-bit-Basis-Image ebenfalls nicht mehr funktioniert.
 
 ## 15. Addon-Grundgerüst
 ```
@@ -184,7 +185,7 @@ supabase/
 
 ## 16. CI: Image-Build & Veröffentlichung
 `.github/workflows/build-addon.yaml` baut bei Push auf `main` (Pfad `ella/**`) die
-Multi-Arch-Images (aarch64, amd64, armv7) über die offiziellen `home-assistant/builder`-
+Multi-Arch-Images (aarch64, amd64) über die offiziellen `home-assistant/builder`-
 Actions und veröffentlicht sie unter der in `config.yaml` hinterlegten `image`-Adresse
 (`ghcr.io/gianlucako95/addon-ella`) auf GHCR — der Supervisor zieht dieses Image dann fertig
 gebaut, statt es beim Installieren lokal auf dem HA-Host zu bauen. Ohne diesen Workflow (oder

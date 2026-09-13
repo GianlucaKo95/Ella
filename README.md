@@ -51,7 +51,7 @@ docs/
 ## Image-Build (GitHub Actions)
 
 `.github/workflows/build-addon.yaml` baut bei jedem Push auf `main` (der `ella/` betrifft)
-Multi-Arch-Images (aarch64, amd64, armv7) und veröffentlicht sie nach
+Multi-Arch-Images (aarch64, amd64) und veröffentlicht sie nach
 `ghcr.io/gianlucako95/addon-ella`. Der Supervisor zieht dieses Image, statt es beim
 Installieren lokal auf dem HA-Host zu bauen.
 
