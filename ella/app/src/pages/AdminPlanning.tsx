@@ -280,13 +280,19 @@ export function AdminPlanning() {
     return "unbekannt";
   }
 
-  async function addShift(date: string, shift_type: "frueh" | "spaet", role_tag: "kueche" | "service" | null) {
+  async function addShift(
+    date: string,
+    shift_type: "frueh" | "spaet",
+    role_tag: "kueche" | "service" | null,
+    start_time?: string,
+    end_time?: string
+  ) {
     await supabase.from("shifts").insert({
       date,
       shift_type,
       role_tag,
-      start_time: shift_type === "frueh" ? "07:00" : "13:00",
-      end_time: shift_type === "frueh" ? "13:00" : "19:00",
+      start_time: start_time ?? (shift_type === "frueh" ? "07:00" : "13:00"),
+      end_time: end_time ?? (shift_type === "frueh" ? "13:00" : "19:00"),
       status: "draft"
     });
     loadAll();
@@ -539,7 +545,14 @@ export function AdminPlanning() {
                     + Ausnahme: Frühschicht
                   </button>
                 )}{" "}
-                <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+                {dow === 5 ? (
+                  <>
+                    <button className="ghost" onClick={() => addShift(dateStr, "spaet", null, "13:00", "19:00")}>+ Spät 13 Uhr</button>{" "}
+                    <button className="ghost" onClick={() => addShift(dateStr, "spaet", null, "14:00", "19:00")}>+ Spät 14 Uhr</button>
+                  </>
+                ) : (
+                  <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+                )}
               </div>
             );
           })}
