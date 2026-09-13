@@ -13,7 +13,7 @@ Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme werden digitalisiert:
 ## 3. Tech-Stack (konsistent mit bestehenden Projekten: Polaris, SwapBid, Daily Nest Plans)
 - **Frontend**: React + Vite + TypeScript, PWA (installierbar, offline-fähiger Grundshell)
 - **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für ICS-Feed und Erstpasswort-Vergabe)
-- **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, Ingress), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
+- **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, eigener Host-Port statt Ingress — siehe §17), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
 
 ## 4. Kernmodule
 1. **Auth & Mitarbeiterverwaltung** (Login wie bei Wizzo: Name + eigenes Passwort in normalen Textfeldern, keine E-Mail; Rollen: `admin`, `employee`)
@@ -202,3 +202,19 @@ Kein `build.yaml` mehr: Die aktuelle `build-image`-Action wertet die alte
 Default in `ella/Dockerfile` (`ARG BUILD_FROM=ghcr.io/home-assistant/base:<alpine>-<version>`)
 — ein generisches Multi-Arch-Image, buildx zieht darüber automatisch die passende
 Architektur.
+
+## 17. Eigener Host-Port statt Ingress
+Bewusst **kein** `ingress: true`: Ella hat ihr eigenes Login (Name + Passwort über Supabase,
+§12), der Hauptvorteil von Ingress (SSO über die laufende HA-Session, kein offener Port) greift
+hier also nicht. Dazu kommt: die App nutzt React Router mit absoluten Pfaden (`/home`,
+`/kalender`, …) — unter dem dynamischen, token-behafteten Ingress-Pfad hätte clientseitige
+Navigation den Präfix verloren und wäre gebrochen. Stattdessen exponiert `config.yaml` einen
+festen `ports`-Eintrag (`8099/tcp: 3050`, Container lauscht weiterhin intern auf 8099, siehe
+`ella/nginx.conf`), sodass ein eigener Reverse-Proxy (z. B. nginx auf dem HA-Host oder extern)
+direkt auf `http://<host>:3050` zeigen kann, unabhängig von Supervisors Ingress-Proxy und ohne
+HA-Sidebar-Eintrag.
+
+Host-Port `3050` wurde gewählt, weil auf demselben HA-Host bereits andere eigene Add-ons feste
+Host-Ports belegen: `re-assistant` (3000), `polier-pro` (3001), `swap-bid` (3045),
+`daily-nest-plans` (8099 — deshalb *nicht* für Ella verwendet, obwohl der Container intern
+weiterhin auf 8099 lauscht). `mg2abrp` hat keine Web-UI (nur MQTT) und belegt keinen Port.

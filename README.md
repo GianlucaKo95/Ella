@@ -47,6 +47,19 @@ docs/
    in den Addon-Optionen eintragen, starten. Der Supervisor zieht dabei standardmäßig das
    von GitHub Actions gebaute Image (siehe unten) statt lokal zu bauen.
 
+## Netzwerk: eigener Port statt Ingress
+
+Ella läuft **ohne** Home-Assistant-Ingress (kein Sidebar-Eintrag) — stattdessen fest auf
+Host-Port **3050** (`ports: 8099/tcp: 3050` in `config.yaml`, Container lauscht intern weiter
+auf 8099). Damit kann ein eigener Reverse-Proxy (z. B. nginx) direkt auf
+`http://<host>:3050` zeigen. Grund: Ella hat ihr eigenes Login (kein HA-SSO-Vorteil durch
+Ingress) und nutzt clientseitiges Routing mit absoluten Pfaden, das unter Ingress' Token-Pfad
+brechen würde (siehe docs/ARCHITECTURE.md §17).
+
+Port `3050` wurde bewusst so gewählt, dass er nicht mit anderen eigenen Add-ons auf demselben
+Host kollidiert: `re-assistant` (3000), `polier-pro` (3001), `swap-bid` (3045),
+`daily-nest-plans` (8099).
+
 ## Image-Build (GitHub Actions)
 
 `.github/workflows/build-addon.yaml` baut bei jedem Push auf `main` (der `ella/` betrifft)

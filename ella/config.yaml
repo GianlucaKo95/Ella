@@ -1,5 +1,5 @@
 name: "Ella"
-version: "0.1.2"
+version: "0.1.3"
 slug: "ella"
 description: "Schicht- und Backplanung für Café Ella"
 url: "https://github.com/GianlucaKo95/Ella"
@@ -8,10 +8,10 @@ arch:
   - aarch64
   - amd64
 init: false
-ingress: true
-ingress_port: 8099
-panel_icon: mdi:cupcake
-panel_title: Ella
+ports:
+  8099/tcp: 3050
+ports_description:
+  8099/tcp: "Ella Web-UI"
 webui: "http://[HOST]:[PORT:8099]"
 options:
   supabase_url: ""
