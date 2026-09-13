@@ -12,7 +12,6 @@ Backtage: Mi, Do, Fr (außerhalb der Öffnungszeiten), aufgeteilt auf 3 feste Ba
   build-addon.yaml       # baut + published Multi-Arch-Image nach ghcr.io bei Push auf main
 ella/                   # Home Assistant Add-on
   config.yaml           # Addon-Manifest (Optionen: supabase_url, supabase_anon_key)
-  build.yaml            # Basis-Images je Architektur fürs Multi-Arch-Build
   Dockerfile
   run.sh                 # schreibt runtime-config.js aus den Addon-Optionen, startet nginx
   nginx.conf

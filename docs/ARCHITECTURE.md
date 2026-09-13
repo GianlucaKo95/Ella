@@ -173,7 +173,6 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 ```
 ella/
   config.yaml
-  build.yaml           # Basis-Image je Architektur (Multi-Arch-Build)
   Dockerfile
   run.sh
   rootfs/...
@@ -196,3 +195,10 @@ Zwei manuelle Schritte bleiben nötig: das GHCR-Package muss nach dem ersten erf
 einmalig auf "Public" gestellt werden (sonst kann der Supervisor es nicht ziehen), und
 `version` in `config.yaml` muss bei jedem Release erhöht werden — der Workflow taggt exakt mit
 diesem Wert, ohne Änderung erkennt der Supervisor kein Update.
+
+Kein `build.yaml` mehr: Die aktuelle `build-image`-Action wertet die alte
+`build_from`-Zuordnung je Architektur nicht mehr aus, sie übergibt dem Dockerfile nur noch
+`BUILD_ARCH`/`BUILD_VERSION` als Build-Args. Das Basis-Image steht deshalb direkt als
+Default in `ella/Dockerfile` (`ARG BUILD_FROM=ghcr.io/home-assistant/base:<alpine>-<version>`)
+— ein generisches Multi-Arch-Image, buildx zieht darüber automatisch die passende
+Architektur.
