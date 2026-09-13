@@ -2,23 +2,23 @@
    helle, freundliche Flächen, große Rundungen, farbige Pillen statt Kanten. */
 
 :root {
-  --bg: #fdf1e4;
-  --surface: #fffdfa;
-  --surface-2: #fbeee0;
-  --border: #f0e0cc;
-  --ink: #2c231a;
-  --ink-soft: #8a7c6c;
-  --ink-faint: #c2b39f;
-  --accent: #f2683c;
+  --bg: #f5faf9;
+  --surface: #ffffff;
+  --surface-2: #e9f6f3;
+  --border: #d7ece7;
+  --ink: #1f2e2b;
+  --ink-soft: #6c8985;
+  --ink-faint: #b7cbc7;
+  --accent: #1b7e71;
   --accent-ink: #ffffff;
-  --accent-soft: #ffe3d4;
+  --accent-soft: #e3f5f1;
   --mint: #58a884;
   --mint-soft: #dcf1e6;
   --warn: #e0a83e;
   --warn-soft: #fbecc9;
   --attention: #e0603f;
   --attention-soft: #fbe0d6;
-  --shadow: rgba(44, 35, 26, 0.08);
+  --shadow: rgba(31, 46, 43, 0.08);
   font-family: "Mulish", system-ui, sans-serif;
 }
 

@@ -12,8 +12,8 @@ export default defineConfig({
         name: "Ella",
         short_name: "Ella",
         description: "Schicht- und Backplanung für Café Ella",
-        theme_color: "#f2683c",
-        background_color: "#fdf1e4",
+        theme_color: "#1b7e71",
+        background_color: "#f5faf9",
         display: "standalone",
         icons: [
           { src: "icon-192.png", sizes: "192x192", type: "image/png" },
