@@ -76,6 +76,13 @@ type Tab = "schicht" | "back" | "einstellungen";
 
 export function AdminPlanning() {
   const [tab, setTab] = useState<Tab>("schicht");
+
+  // Beim Tab-Wechsel wieder nach oben springen, statt mitten in der neuen
+  // Tab-Ansicht stehen zu bleiben, wenn im vorigen Tab weiter unten gescrollt war.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [tab]);
+
   const [planMonth, setPlanMonth] = useState(() => monthStartOf(new Date()));
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
