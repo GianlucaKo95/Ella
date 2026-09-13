@@ -7,8 +7,11 @@ import {
   nextMonthStart,
   monthLabel,
   monthDaysMatching,
+  mergeUniqueDates,
   isoDayOfWeek,
   toDateStr,
+  parseDateStr,
+  daysInMonthCount,
   formatDayMonth,
   timeToMinutes,
   toMonthStr
@@ -16,10 +19,6 @@ import {
 import { Avatar } from "../components/Avatar";
 
 const DAYS = DAY_NAMES;
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
-}
 
 // An Tagen mit Frühschicht wird zwischen "nur Früh"/"nur Spät"/"ganztags"
 // unterschieden (Feedback: sonst kein Unterschied zwischen "kann früh" und
@@ -45,6 +44,8 @@ type AvailabilityEntry = {
   note: string | null;
 };
 
+type SpecialDay = { date: string; label: string; service_exception: boolean; frueh_exception: boolean };
+
 export function Profil({ employee, onEmployeeChanged }: { employee: Employee; onEmployeeChanged?: () => void }) {
   const [entries, setEntries] = useState<AvailabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +57,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [pickMonth, setPickMonth] = useState(today.getMonth() + 1);
   const [pickDay, setPickDay] = useState(today.getDate());
   const [newDateAvailable, setNewDateAvailable] = useState(true);
-  const maxDay = daysInMonth(pickYear, pickMonth);
+  const maxDay = daysInMonthCount(pickYear, pickMonth);
   const newDate = `${pickYear}-${String(pickMonth).padStart(2, "0")}-${String(Math.min(pickDay, maxDay)).padStart(2, "0")}`;
   const [deadline, setDeadline] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [nameSaved, setNameSaved] = useState(false);
   const [requiredDays, setRequiredDays] = useState<number[]>(RELEVANT_DAYS);
   const [fruehDays, setFruehDays] = useState<number[]>([]);
+  const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +84,10 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
       setRequiredDays(s.service_days);
       setFruehDays(s.frueh_days);
     });
+    supabase
+      .from("special_days")
+      .select("date,label,service_exception,frueh_exception")
+      .then(({ data }) => setSpecialDays((data as SpecialDay[]) || []));
   }, []);
 
   async function load() {
@@ -150,7 +156,15 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   // Tag einzeln kann/kann nicht gesetzt, jeweils als 'one_time'-Eintrag auf
   // das genaue Datum. is_colleague_available/availabilityFor lesen 'one_time'
   // ohnehin vorrangig vor 'recurring', hier also keine Backend-Änderung nötig.
-  const relevantDates = monthDaysMatching(nextMonth, requiredDays);
+  const specialByDate = new Map(specialDays.map((sd) => [sd.date, sd]));
+  // Vom Admin angelegte Sondertage (Feiertage, Muttertag, ...) mit
+  // "zusätzlich geöffnet" ergänzen die normalen Öffnungstage um einzelne
+  // Zusatztermine im einreichbaren Monat.
+  const extraServiceDates = specialDays
+    .filter((sd) => sd.service_exception)
+    .map((sd) => parseDateStr(sd.date))
+    .filter((d) => d.getFullYear() === nextMonth.getFullYear() && d.getMonth() === nextMonth.getMonth());
+  const relevantDates = mergeUniqueDates(monthDaysMatching(nextMonth, requiredDays), extraServiceDates);
   const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
   const oneTimeByDate = new Map(oneTimeEntries.map((e) => [e.specific_date as string, e]));
   const relevantDateStrs = new Set(relevantDates.map(toDateStr));
@@ -277,11 +291,17 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
               {relevantDates.map((d) => {
                 const dateStr = toDateStr(d);
                 const choice = choiceFor(oneTimeByDate.get(dateStr));
-                const hasFrueh = fruehDays.includes(isoDayOfWeek(d));
+                const specialDay = specialByDate.get(dateStr);
+                const hasFrueh = fruehDays.includes(isoDayOfWeek(d)) || specialDay?.frueh_exception === true;
                 return (
                   <tr key={dateStr}>
                     <td>
                       {DAYS[isoDayOfWeek(d)]}, {formatDayMonth(d)}
+                      {specialDay && (
+                        <span style={{ display: "block", color: "var(--ink-soft)", fontSize: "0.72rem" }}>
+                          {specialDay.label}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <div className="segmented">
