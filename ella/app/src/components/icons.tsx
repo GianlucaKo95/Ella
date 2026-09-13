@@ -53,6 +53,15 @@ export function IconUsers() {
   );
 }
 
+export function IconLogout() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8" />
+      <path d="M10 12h10.5M17.5 8.5 21 12l-3.5 3.5" />
+    </svg>
+  );
+}
+
 export function IconBell() {
   return (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { supabase, fetchCurrentEmployee, type Employee } from "./lib/supabase";
 import { NotificationBell } from "./components/NotificationBell";
 import { NavBar } from "./components/NavBar";
+import { Avatar } from "./components/Avatar";
+import { IconLogout } from "./components/icons";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { Kalender } from "./pages/Kalender";
@@ -40,7 +42,10 @@ export default function App() {
     <BrowserRouter>
       <div className="app-shell">
         <div className="brand-header">
-          <h1>ELLA</h1>
+          <div className="brand-left">
+            <img className="brand-logo" src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
+            <h1>ELLA</h1>
+          </div>
           <div className="who">
             <NotificationBell employee={employee} />
             <span>
@@ -48,14 +53,12 @@ export default function App() {
               <br />
               {employee.role === "admin" ? "Admin" : "Mitarbeiterin"}
             </span>
-            <img className="avatar" src="./logo.png" alt="Frau Ella Kaufladen &amp; Café" />
+            <Avatar name={employee.name} avatarUrl={employee.avatar_url} />
+            <button className="notif-bell" onClick={() => supabase.auth.signOut()} aria-label="Abmelden" title="Abmelden">
+              <IconLogout />
+            </button>
           </div>
         </div>
-        <p style={{ margin: "-0.6rem 0 1rem" }}>
-          <button className="ghost" onClick={() => supabase.auth.signOut()} style={{ fontSize: "0.68rem", padding: "0.4rem 0.7rem" }}>
-            Abmelden
-          </button>
-        </p>
         <NavBar employee={employee} />
         <Routes>
           <Route path="/home" element={<Home employee={employee} />} />

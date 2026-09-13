@@ -2,23 +2,23 @@
    helle, freundliche Flächen, große Rundungen, farbige Pillen statt Kanten. */
 
 :root {
-  --bg: #fdf1e4;
-  --surface: #fffdfa;
-  --surface-2: #fbeee0;
-  --border: #f0e0cc;
-  --ink: #2c231a;
-  --ink-soft: #8a7c6c;
-  --ink-faint: #c2b39f;
-  --accent: #f2683c;
+  --bg: #f5faf9;
+  --surface: #ffffff;
+  --surface-2: #e9f6f3;
+  --border: #d7ece7;
+  --ink: #1f2e2b;
+  --ink-soft: #6c8985;
+  --ink-faint: #b7cbc7;
+  --accent: #1b7e71;
   --accent-ink: #ffffff;
-  --accent-soft: #ffe3d4;
+  --accent-soft: #e3f5f1;
   --mint: #58a884;
   --mint-soft: #dcf1e6;
   --warn: #e0a83e;
   --warn-soft: #fbecc9;
   --attention: #e0603f;
   --attention-soft: #fbe0d6;
-  --shadow: rgba(44, 35, 26, 0.08);
+  --shadow: rgba(31, 46, 43, 0.08);
   font-family: "Mulish", system-ui, sans-serif;
 }
 
@@ -57,6 +57,17 @@ h1, h2, h3, h4 {
   padding-bottom: 0.9rem;
   margin-bottom: 1rem;
 }
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-logo {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .brand-header h1 {
   font-size: 1.6rem;
   margin: 0;
@@ -72,15 +83,26 @@ h1, h2, h3, h4 {
   color: var(--ink-soft);
   text-align: right;
 }
-.brand-header .avatar {
+.avatar {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 3px solid var(--surface);
-  box-shadow: 0 0 0 2px var(--accent-soft);
   background: var(--surface-2);
   object-fit: cover;
   flex-shrink: 0;
+}
+.avatar.avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--accent);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.brand-header .avatar {
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 /* ---- Benachrichtigungs-Glocke ---- */

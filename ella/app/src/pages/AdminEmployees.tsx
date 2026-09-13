@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { resetEmployeePassword, supabase } from "../lib/supabase";
 
 type EmployeeRow = {
   id: string;
@@ -7,13 +7,25 @@ type EmployeeRow = {
   role: "admin" | "employee";
   active: boolean;
   bake_team_id: string | null;
+  auth_user_id: string | null;
 };
 type BakeTeam = { id: string; name: string };
+
+// Erzeugt den Einladungstext für WhatsApp/Kopieren. window.location.origin ist
+// bewusst die Quelle für den Link: es ist genau die URL, unter der die
+// Admin-Person die App gerade selbst aufruft (egal ob LAN-IP:3050 oder eine
+// per nginx dahintergeschaltete eigene Domain) — kein separates "App-URL"-
+// Einstellungsfeld nötig, das sonst veralten könnte.
+function inviteMessage(name: string): string {
+  const appUrl = window.location.origin;
+  return `Hallo ${name}! 👋\n\nDu bist jetzt im Ella-Dienstplan freigeschaltet. Öffne den Link und melde dich mit deinem Namen "${name}" an – beim ersten Login legst du dein eigenes Passwort fest:\n\n${appUrl}`;
+}
 
 export function AdminEmployees() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [teams, setTeams] = useState<BakeTeam[]>([]);
   const [newName, setNewName] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   async function load() {
     const [emp, t] = await Promise.all([
@@ -40,6 +52,30 @@ export function AdminEmployees() {
     load();
   }
 
+  async function resetPassword(e: EmployeeRow) {
+    if (!confirm(`Passwort von ${e.name} zurücksetzen? Die Person muss sich beim nächsten Login neu ein Passwort vergeben.`)) {
+      return;
+    }
+    const error = await resetEmployeePassword(e.id);
+    if (error) alert(error);
+    load();
+  }
+
+  function inviteViaWhatsapp(name: string) {
+    window.open(`https://wa.me/?text=${encodeURIComponent(inviteMessage(name))}`, "_blank");
+  }
+
+  async function copyInvite(e: EmployeeRow) {
+    const text = inviteMessage(e.name);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(e.id);
+      setTimeout(() => setCopiedId((id) => (id === e.id ? null : id)), 2000);
+    } catch {
+      window.prompt("Text zum manuellen Kopieren:", text);
+    }
+  }
+
   return (
     <div>
       <h2>Mitarbeiter</h2>
@@ -59,6 +95,7 @@ export function AdminEmployees() {
             <th>Rolle</th>
             <th>Aktiv</th>
             <th>Back-Truppe</th>
+            <th>Login</th>
           </tr>
         </thead>
         <tbody>
@@ -90,6 +127,22 @@ export function AdminEmployees() {
                     </option>
                   ))}
                 </select>
+              </td>
+              <td>
+                {e.auth_user_id ? (
+                  <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => resetPassword(e)}>
+                    Passwort zurücksetzen
+                  </button>
+                ) : (
+                  <span className="row-actions" style={{ flexWrap: "wrap" }}>
+                    <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => inviteViaWhatsapp(e.name)}>
+                      Einladen (WhatsApp)
+                    </button>
+                    <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => copyInvite(e)}>
+                      {copiedId === e.id ? "Kopiert ✅" : "Text kopieren"}
+                    </button>
+                  </span>
+                )}
               </td>
             </tr>
           ))}

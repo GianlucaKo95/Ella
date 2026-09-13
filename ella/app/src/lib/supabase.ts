@@ -32,6 +32,7 @@ export type Employee = {
   role: "admin" | "employee";
   active: boolean;
   bake_team_id: string | null;
+  avatar_url: string | null;
 };
 
 export type LoginName = { id: string; name: string; has_account: boolean };
@@ -58,9 +59,6 @@ function loginEmail(employeeId: string): string {
   return `${employeeId}@login.ella.internal`;
 }
 
-// Erster Login: legt per Edge Function (Service-Role, da admin.createUser
-// nötig ist) das Konto mit dem selbst gewählten Passwort an.
-//
 // Bewusst ein direkter fetch() auf den Pfad unter supabaseUrl statt
 // supabase.functions.invoke(): Der Supabase-JS-Client leitet Function-Aufrufe
 // bei einer *.supabase.co-URL standardmäßig auf eine eigene
@@ -69,27 +67,40 @@ function loginEmail(employeeId: string): string {
 // dieser Aufruf mit "Failed to send a request to the Edge Function" fehl,
 // obwohl die normale REST-API (gleiche Domain wie oben) funktioniert. Der
 // Pfad /functions/v1/<name> unter derselben, bereits erreichbaren Domain
-// funktioniert immer, auch selbst-gehostet.
-export async function setInitialPassword(employeeId: string, password: string): Promise<string | null> {
+// funktioniert immer, auch selbst-gehostet. accessToken ist nur bei
+// Funktionen nötig, die den Aufrufer selbst prüfen (z. B. reset-password);
+// ohne accessToken wird der anon-Key als Bearer-Token mitgeschickt.
+async function callEdgeFunction(
+  name: string,
+  body: unknown,
+  accessToken?: string
+): Promise<{ ok: boolean; error?: string; [key: string]: unknown }> {
   let response: Response;
   try {
-    response = await fetch(`${supabaseUrl}/functions/v1/set-password`, {
+    response = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`
+        Authorization: `Bearer ${accessToken || supabaseAnonKey}`
       },
-      body: JSON.stringify({ employeeId, password })
+      body: JSON.stringify(body)
     });
   } catch {
-    return "Server nicht erreichbar. Bitte Internetverbindung prüfen.";
+    return { ok: false, error: "Server nicht erreichbar. Bitte Internetverbindung prüfen." };
   }
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.ok) {
-    return data?.error || "Passwort konnte nicht gesetzt werden";
+    return { ok: false, error: data?.error || "Anfrage fehlgeschlagen" };
   }
-  return null;
+  return data;
+}
+
+// Erster Login: legt per Edge Function (Service-Role, da admin.createUser
+// nötig ist) das Konto mit dem selbst gewählten Passwort an.
+export async function setInitialPassword(employeeId: string, password: string): Promise<string | null> {
+  const result = await callEdgeFunction("set-password", { employeeId, password });
+  return result.ok ? null : result.error || "Passwort konnte nicht gesetzt werden";
 }
 
 // Normale Anmeldung mit Name (-> employeeId) + Passwort, ganz regulär über
@@ -100,6 +111,48 @@ export async function signInWithName(employeeId: string, password: string): Prom
     password
   });
   return error ? "Falscher Name oder falsches Passwort" : null;
+}
+
+// Admin setzt das Passwort eines Mitarbeiters zurück (löscht dessen
+// Login-Konto, employees.auth_user_id wird wieder null) — die Person legt
+// beim nächsten Login-Versuch wie beim allerersten Mal ein neues Passwort
+// selbst fest. Braucht den Access-Token des aufrufenden Admins, damit die
+// Function die Berechtigung prüfen kann.
+export async function resetEmployeePassword(employeeId: string): Promise<string | null> {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session) return "Nicht angemeldet";
+  const result = await callEdgeFunction("reset-password", { employeeId }, session.access_token);
+  return result.ok ? null : result.error || "Passwort konnte nicht zurückgesetzt werden";
+}
+
+// Profilbild-Upload: eigene Datei in den eigenen Ordner "<auth.uid()>/…" der
+// öffentlichen Bucket "avatars" hochladen (RLS erlaubt Schreiben nur im
+// eigenen Ordner, Lesen ist öffentlich), dann die öffentliche URL per
+// SECURITY-DEFINER-Funktion in employees.avatar_url eintragen. Jeder Upload
+// bekommt einen neuen Dateinamen, damit die URL sich ändert und nicht per
+// Browser-/CDN-Cache veraltet bleibt.
+export async function uploadMyAvatar(file: File): Promise<string | null> {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return "Nicht angemeldet";
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "jpg";
+  const path = `${user.id}/${Date.now()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+    contentType: file.type || "image/jpeg"
+  });
+  if (uploadError) return "Foto konnte nicht hochgeladen werden";
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  const { error: rpcError } = await supabase.rpc("update_my_avatar_url", { new_url: data.publicUrl });
+  if (rpcError) return "Foto konnte nicht gespeichert werden";
+  return null;
+}
+
+export async function removeMyAvatar(): Promise<string | null> {
+  const { error } = await supabase.rpc("update_my_avatar_url", { new_url: null });
+  return error ? "Foto konnte nicht entfernt werden" : null;
 }
 
 export async function fetchCurrentEmployee(): Promise<Employee | null> {
@@ -119,18 +172,22 @@ export type AppSettings = {
   // Wochentage 0=Montag .. 6=Sonntag
   service_days: number[];
   bake_days: number[];
+  // An diesen Tagen ist normalerweise eine Frühschicht (meistens nur Sa/So) —
+  // an anderen Tagen bleibt sie als Ausnahme weiterhin manuell anlegbar.
+  frueh_days: number[];
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   billing_period_start_day: 1,
   service_days: [3, 4, 5, 6],
-  bake_days: [2, 3, 4]
+  bake_days: [2, 3, 4],
+  frueh_days: [5, 6]
 };
 
 export async function fetchAppSettings(): Promise<AppSettings> {
   const { data, error } = await supabase
     .from("app_settings")
-    .select("billing_period_start_day,service_days,bake_days")
+    .select("billing_period_start_day,service_days,bake_days,frueh_days")
     .eq("id", true)
     .maybeSingle();
   if (error || !data) return DEFAULT_APP_SETTINGS;

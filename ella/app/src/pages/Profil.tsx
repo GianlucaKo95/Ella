@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
-import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
-import { DAY_NAMES, RELEVANT_DAYS, relevantDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import { useEffect, useRef, useState } from "react";
+import { fetchAppSettings, removeMyAvatar, supabase, uploadMyAvatar, type Employee } from "../lib/supabase";
+import { DAY_NAMES, MONTH_NAMES, RELEVANT_DAYS, relevantDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import { Avatar } from "../components/Avatar";
 
 const DAYS = DAY_NAMES;
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
 
 type AvailabilityEntry = {
   id: string;
@@ -18,8 +23,16 @@ type AvailabilityEntry = {
 export function Profil({ employee, onEmployeeChanged }: { employee: Employee; onEmployeeChanged?: () => void }) {
   const [entries, setEntries] = useState<AvailabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newDate, setNewDate] = useState("");
+  // Drei Auswahlfelder statt <input type="date"> — dessen natives
+  // Kalender-Popup öffnet sich in manchen eingebetteten WebViews (z.B. der
+  // Home-Assistant-Companion-App) nicht zuverlässig.
+  const today = new Date();
+  const [pickYear, setPickYear] = useState(today.getFullYear());
+  const [pickMonth, setPickMonth] = useState(today.getMonth() + 1);
+  const [pickDay, setPickDay] = useState(today.getDate());
   const [newDateAvailable, setNewDateAvailable] = useState(true);
+  const maxDay = daysInMonth(pickYear, pickMonth);
+  const newDate = `${pickYear}-${String(pickMonth).padStart(2, "0")}-${String(Math.min(pickDay, maxDay)).padStart(2, "0")}`;
   const [deadline, setDeadline] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
 
@@ -27,6 +40,9 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [requiredDays, setRequiredDays] = useState<number[]>(RELEVANT_DAYS);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -71,6 +87,30 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
     }
   }
 
+  async function handleAvatarFile(file: File) {
+    setAvatarUploading(true);
+    setAvatarError(null);
+    const error = await uploadMyAvatar(file);
+    setAvatarUploading(false);
+    if (error) {
+      setAvatarError(error);
+    } else {
+      onEmployeeChanged?.();
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarUploading(true);
+    setAvatarError(null);
+    const error = await removeMyAvatar();
+    setAvatarUploading(false);
+    if (error) {
+      setAvatarError(error);
+    } else {
+      onEmployeeChanged?.();
+    }
+  }
+
   const recurring = DAYS.map((_, idx) =>
     entries.find((e) => e.kind === "recurring" && e.day_of_week === idx)
   );
@@ -91,14 +131,12 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   }
 
   async function addOneTime() {
-    if (!newDate) return;
     await supabase.from("availability_entries").insert({
       employee_id: employee.id,
       kind: "one_time",
       specific_date: newDate,
       available: newDateAvailable
     });
-    setNewDate("");
     load();
   }
 
@@ -122,6 +160,33 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   return (
     <div>
       <h2>Profil</h2>
+
+      <div className="card">
+        <h3>Profilbild</h3>
+        <div className="row-actions" style={{ alignItems: "center" }}>
+          <Avatar name={employee.name} avatarUrl={employee.avatar_url} size={64} />
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleAvatarFile(file);
+            }}
+          />
+          <button className="ghost" onClick={() => avatarInputRef.current?.click()} disabled={avatarUploading}>
+            {avatarUploading ? "Lädt hoch…" : "Foto ändern"}
+          </button>
+          {employee.avatar_url && (
+            <button className="ghost" onClick={handleAvatarRemove} disabled={avatarUploading}>
+              Entfernen
+            </button>
+          )}
+        </div>
+        {avatarError && <p style={{ color: "var(--attention)", margin: "0.5rem 0 0", fontSize: "0.8rem" }}>{avatarError}</p>}
+      </div>
 
       <div className="card">
         <h3>Name</h3>
@@ -204,8 +269,28 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
 
       <div className="card">
         <h3>Ausnahmen</h3>
-        <p>
-          <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />{" "}
+        <p className="row-actions" style={{ flexWrap: "wrap" }}>
+          <select value={pickDay} onChange={(e) => setPickDay(Number(e.target.value))}>
+            {Array.from({ length: maxDay }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <select value={pickMonth} onChange={(e) => setPickMonth(Number(e.target.value))}>
+            {MONTH_NAMES.map((name, idx) => (
+              <option key={name} value={idx + 1}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select value={pickYear} onChange={(e) => setPickYear(Number(e.target.value))}>
+            {[today.getFullYear(), today.getFullYear() + 1].map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
           <select
             value={newDateAvailable ? "yes" : "no"}
             onChange={(e) => setNewDateAvailable(e.target.value === "yes")}
