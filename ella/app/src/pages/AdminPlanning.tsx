@@ -2,25 +2,33 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchAppSettings, notifyEmployees, supabase } from "../lib/supabase";
 import {
   monthDaysMatching,
+  mergeUniqueDates,
   toDateStr,
+  parseDateStr,
+  daysInMonthCount,
   isoDayOfWeek,
   DAY_NAMES,
+  MONTH_NAMES,
   nextMonthStart,
   monthLabel,
   toMonthStr,
   billingPeriod,
   formatDayMonth,
+  timeToMinutes,
   addMonths,
   monthStartOf
 } from "../lib/dates";
 
 type EmployeeRow = { id: string; name: string; active: boolean; bake_team_id: string | null };
+type SpecialDay = { id: string; date: string; label: string; service_exception: boolean; frueh_exception: boolean };
 type AvailabilityRow = {
   employee_id: string;
   kind: "recurring" | "one_time";
   day_of_week: number | null;
   specific_date: string | null;
   available: boolean;
+  from_time: string | null;
+  to_time: string | null;
 };
 type StaffingReq = {
   day_of_week: number;
@@ -89,9 +97,18 @@ export function AdminPlanning() {
   const [bakeDays, setBakeDaysState] = useState<number[]>(savedBakeDays);
   const [fruehDays, setFruehDaysState] = useState<number[]>(savedFruehDays);
   const [savingSettings, setSavingSettings] = useState(false);
-  // Tage, an denen der Admin bewusst eine Ausnahme-Frühschicht freigeschaltet
-  // hat, obwohl der Wochentag laut savedFruehDays normalerweise keine hat.
-  const [fruehExceptionDates, setFruehExceptionDates] = useState<Set<string>>(new Set());
+  // Sondertage (Feiertage, Muttertag, ...): der Admin legt einzelne Tage mit
+  // Zusatzöffnung und/oder Zusatz-Frühschicht fest — persistiert, damit sie
+  // auch in der Verfügbarkeitsabfrage der Mitarbeiter (Profil) auftauchen,
+  // anders als die frühere rein clientseitige "+ Ausnahme: Frühschicht".
+  const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
+  const todaySd = new Date();
+  const [sdYear, setSdYear] = useState(todaySd.getFullYear());
+  const [sdMonth, setSdMonth] = useState(todaySd.getMonth() + 1);
+  const [sdDay, setSdDay] = useState(todaySd.getDate());
+  const [sdLabel, setSdLabel] = useState("");
+  const [sdServiceException, setSdServiceException] = useState(true);
+  const [sdFruehException, setSdFruehException] = useState(false);
   // Ausgewählte Uhrzeit im "+ Spät"-Dropdown je Tag (samstags 13/14 Uhr zur Wahl).
   const [spaetTimeByDate, setSpaetTimeByDate] = useState<Record<string, string>>({});
   const [newTeamName, setNewTeamName] = useState("");
@@ -116,14 +133,23 @@ export function AdminPlanning() {
   // der Mitarbeiter im Kalender betrifft, nicht was geplant werden muss. Welche
   // Wochentage überhaupt Service- bzw. Back-Tage sind, kommt aus den zuletzt
   // GESPEICHERTEN Einstellungen — ein unsaved Toggle ändert die Planung unten
-  // erst nach "Tage speichern" (siehe dayRulesDirty-Hinweis im UI).
-  const svcDays = useMemo(() => monthDaysMatching(planMonth, savedServiceDays), [planMonth, savedServiceDays]);
+  // erst nach "Tage speichern" (siehe dayRulesDirty-Hinweis im UI). Sondertage
+  // mit "zusätzlich geöffnet" ergänzen einzelne Zusatztermine unabhängig vom
+  // Wochentag (z. B. ein sonst schichtfreier Montag für Muttertag).
+  const svcDays = useMemo(() => {
+    const base = monthDaysMatching(planMonth, savedServiceDays);
+    const extra = specialDays
+      .filter((sd) => sd.service_exception)
+      .map((sd) => parseDateStr(sd.date))
+      .filter((d) => d.getFullYear() === planMonth.getFullYear() && d.getMonth() === planMonth.getMonth());
+    return mergeUniqueDates(base, extra);
+  }, [planMonth, savedServiceDays, specialDays]);
   const bkDays = useMemo(() => monthDaysMatching(planMonth, savedBakeDays), [planMonth, savedBakeDays]);
   const svcDateStrs = svcDays.map(toDateStr);
   const bkDateStrs = bkDays.map(toDateStr);
 
   async function loadAll() {
-    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes, swapsRes, auditRes] = await Promise.all([
+    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes, swapsRes, auditRes, specialRes] = await Promise.all([
       supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
@@ -145,7 +171,8 @@ export function AdminPlanning() {
         .gte("date", toDateStr(planMonth))
         .lt("date", toDateStr(addMonths(planMonth, 1)))
         .order("changed_at", { ascending: false })
-        .limit(50)
+        .limit(50),
+      supabase.from("special_days").select("*").order("date")
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
@@ -158,6 +185,7 @@ export function AdminPlanning() {
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
     setAuditLog((auditRes.data as AuditEntry[]) || []);
+    setSpecialDays((specialRes.data as SpecialDay[]) || []);
   }
 
   async function saveDeadline() {
@@ -190,6 +218,23 @@ export function AdminPlanning() {
     setSavedBakeDays(bakeDays);
     setSavedFruehDays(fruehDays);
     setSavingSettings(false);
+  }
+
+  async function addSpecialDay() {
+    if (!sdLabel.trim()) return;
+    const maxDay = daysInMonthCount(sdYear, sdMonth);
+    const dateStr = `${sdYear}-${String(sdMonth).padStart(2, "0")}-${String(Math.min(sdDay, maxDay)).padStart(2, "0")}`;
+    await supabase.from("special_days").upsert(
+      { date: dateStr, label: sdLabel.trim(), service_exception: sdServiceException, frueh_exception: sdFruehException },
+      { onConflict: "date" }
+    );
+    setSdLabel("");
+    loadAll();
+  }
+
+  async function deleteSpecialDay(id: string) {
+    await supabase.from("special_days").delete().eq("id", id);
+    loadAll();
   }
 
   async function addBakeTeam() {
@@ -269,17 +314,24 @@ export function AdminPlanning() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planMonth, savedServiceDays, savedBakeDays]);
 
-  function availabilityFor(employeeId: string, date: Date, dateStr: string): "kann" | "kann nicht" | "unbekannt" {
+  // shiftStartTime prüft bei gesetztem Zeitfenster (from_time/to_time, "nur
+  // Früh"/"nur Spät" aus dem Profil) zusätzlich, ob die konkrete Schicht in
+  // dieses Fenster fällt — ohne Fenster (ganztags) zählt die Verfügbarkeit
+  // für jede Schicht des Tages.
+  function availabilityFor(employeeId: string, date: Date, dateStr: string, shiftStartTime: string): "kann" | "kann nicht" | "unbekannt" {
     const dow = isoDayOfWeek(date);
-    const oneTime = availability.find(
-      (a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr
-    );
-    if (oneTime) return oneTime.available ? "kann" : "kann nicht";
-    const recurring = availability.find(
-      (a) => a.employee_id === employeeId && a.kind === "recurring" && a.day_of_week === dow
-    );
-    if (recurring) return recurring.available ? "kann" : "kann nicht";
-    return "unbekannt";
+    const entry =
+      availability.find((a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr) ??
+      availability.find((a) => a.employee_id === employeeId && a.kind === "recurring" && a.day_of_week === dow);
+    if (!entry) return "unbekannt";
+    if (!entry.available) return "kann nicht";
+    if (entry.from_time && entry.to_time) {
+      const start = timeToMinutes(shiftStartTime);
+      const from = timeToMinutes(entry.from_time);
+      const to = timeToMinutes(entry.to_time);
+      return start >= from && start < to ? "kann" : "kann nicht";
+    }
+    return "kann";
   }
 
   async function addShift(
@@ -485,10 +537,16 @@ export function AdminPlanning() {
             const dow = isoDayOfWeek(d);
             const dayReqs = requirements.filter((r) => r.day_of_week === dow);
             const dayShifts = shifts.filter((s) => s.date === dateStr);
+            const specialDay = specialDays.find((sd) => sd.date === dateStr);
             return (
               <div className="card" key={dateStr}>
                 <h4>
                   {DAY_NAMES[dow]}, {dateStr}
+                  {specialDay && (
+                    <span className="badge" style={{ marginLeft: "0.5rem" }}>
+                      🎉 {specialDay.label}
+                    </span>
+                  )}
                 </h4>
                 {dayReqs.length > 0 && (
                   <p style={{ fontSize: "0.85rem", color: "#666" }}>
@@ -521,7 +579,7 @@ export function AdminPlanning() {
                             <option value="">– wählen –</option>
                             {employees.map((emp) => (
                               <option key={emp.id} value={emp.id}>
-                                {emp.name} ({availabilityFor(emp.id, d, dateStr)})
+                                {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
                               </option>
                             ))}
                           </select>
@@ -533,20 +591,12 @@ export function AdminPlanning() {
                     ))}
                   </tbody>
                 </table>
-                {(savedFruehDays.includes(dow) || fruehExceptionDates.has(dateStr)) ? (
+                {(savedFruehDays.includes(dow) || specialDay?.frueh_exception) && (
                   <>
                     <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
                     <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
                   </>
-                ) : (
-                  <button
-                    className="ghost"
-                    style={{ fontSize: "0.7rem" }}
-                    onClick={() => setFruehExceptionDates((prev) => new Set(prev).add(dateStr))}
-                  >
-                    + Ausnahme: Frühschicht
-                  </button>
-                )}{" "}
+                )}
                 {dow === 5 ? (
                   <span className="row-actions" style={{ display: "inline-flex" }}>
                     <select
@@ -773,9 +823,8 @@ export function AdminPlanning() {
                 ))}
               </div>
               <p className="hint">
-                An anderen Tagen bietet die Schichtplanung "+ Ausnahme: Frühschicht" statt der Früh-Buttons an —
-                eine Frühschicht bleibt dort also weiterhin für Sonderfälle möglich, ist aber nicht der Normalfall.
-                Leere Auswahl ist erlaubt (nie normalerweise).
+                Ausnahmen für einzelne Tage (Feiertage, Muttertag, ...) werden weiter unten über "Sondertage"
+                verwaltet, nicht hier. Leere Auswahl ist erlaubt (nie normalerweise).
               </p>
             </div>
 
@@ -792,6 +841,86 @@ export function AdminPlanning() {
             >
               Tage speichern
             </button>
+          </div>
+
+          <div className="card">
+            <h3>Sondertage</h3>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Für Feiertage, Muttertag & Co., an denen zusätzlich geöffnet ist und/oder zusätzlich eine
+              Frühschicht angeboten wird — der Tag erscheint dann automatisch im Dienstplan oben und in der
+              Verfügbarkeitsabfrage der Mitarbeiter.
+            </p>
+            <div className="row-actions" style={{ flexWrap: "wrap" }}>
+              <select value={sdDay} onChange={(e) => setSdDay(Number(e.target.value))}>
+                {Array.from({ length: daysInMonthCount(sdYear, sdMonth) }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <select value={sdMonth} onChange={(e) => setSdMonth(Number(e.target.value))}>
+                {MONTH_NAMES.map((name, idx) => (
+                  <option key={name} value={idx + 1}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select value={sdYear} onChange={(e) => setSdYear(Number(e.target.value))}>
+                {[todaySd.getFullYear(), todaySd.getFullYear() + 1].map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <input
+                placeholder="Bezeichnung, z. B. Muttertag"
+                style={{ flex: 1, minWidth: "10rem" }}
+                value={sdLabel}
+                onChange={(e) => setSdLabel(e.target.value)}
+              />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.6rem", fontSize: "0.85rem" }}>
+              <input
+                type="checkbox"
+                checked={sdServiceException}
+                onChange={(e) => setSdServiceException(e.target.checked)}
+              />
+              Zusätzlich geöffnet (auch an sonst schichtfreien Tagen)
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.3rem", fontSize: "0.85rem" }}>
+              <input type="checkbox" checked={sdFruehException} onChange={(e) => setSdFruehException(e.target.checked)} />
+              Zusätzlich Frühschicht
+            </label>
+            <button className="ghost" style={{ marginTop: "0.6rem" }} onClick={addSpecialDay} disabled={!sdLabel.trim()}>
+              Sondertag hinzufügen
+            </button>
+            <ul style={{ listStyle: "none", padding: 0, marginTop: "0.8rem" }}>
+              {specialDays.map((sd) => (
+                <li
+                  key={sd.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "0.4rem 0",
+                    borderBottom: "1px solid var(--border)"
+                  }}
+                >
+                  <span>
+                    {formatDayMonth(parseDateStr(sd.date))}.{sd.date.slice(0, 4)} — {sd.label}
+                    {sd.service_exception && " · zusätzlich geöffnet"}
+                    {sd.frueh_exception && " · zusätzlich Früh"}
+                  </span>
+                  <button
+                    className="ghost"
+                    style={{ fontSize: "0.65rem", padding: "0.3rem 0.5rem" }}
+                    onClick={() => deleteSpecialDay(sd.id)}
+                  >
+                    entfernen
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div className="card">

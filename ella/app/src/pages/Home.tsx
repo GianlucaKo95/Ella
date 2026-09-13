@@ -194,12 +194,16 @@ export function Home({ employee }: { employee: Employee }) {
     cancelled: "zurückgezogen"
   };
 
-  async function checkWeekSwapTarget(colleagueId: string, dateStr: string) {
+  async function checkWeekSwapTarget(colleagueId: string, dateStr: string, startTime: string) {
     if (!colleagueId) {
       setWeekSwapTargetUnavailable(false);
       return;
     }
-    const { data } = await supabase.rpc("is_colleague_available", { target_employee: colleagueId, check_date: dateStr });
+    const { data } = await supabase.rpc("is_colleague_available", {
+      target_employee: colleagueId,
+      check_date: dateStr,
+      check_start_time: startTime
+    });
     setWeekSwapTargetUnavailable(data === false);
   }
 
@@ -337,7 +341,7 @@ export function Home({ employee }: { employee: Employee }) {
                             value={weekSwapTarget}
                             onChange={(e) => {
                               setWeekSwapTarget(e.target.value);
-                              checkWeekSwapTarget(e.target.value, s.date);
+                              checkWeekSwapTarget(e.target.value, s.date, s.start_time);
                             }}
                           >
                             <option value="">Kolleg:in wählen…</option>

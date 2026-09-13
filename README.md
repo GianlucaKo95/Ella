@@ -35,12 +35,13 @@ docs/
    supabase db push
    ```
 2. **Edge Functions** deployen (`supabase/config.toml` setzt `verify_jwt = false` für
-   alle drei — sonst kann die Supabase-Plattform-JWT-Prüfung den Browser-CORS-Preflight
+   alle vier — sonst kann die Supabase-Plattform-JWT-Prüfung den Browser-CORS-Preflight
    blockieren, siehe docs/ARCHITECTURE.md §12):
    ```
    supabase functions deploy ics-feed
    supabase functions deploy set-password
    supabase functions deploy reset-password
+   supabase functions deploy delete-employee
    ```
 3. Ersten Admin-Mitarbeiter anlegen: einen Eintrag in der Tabelle `employees` mit
    `role = 'admin'` erstellen (Name reicht, `auth_user_id` wird beim ersten Login mit

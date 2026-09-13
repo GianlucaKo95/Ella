@@ -8,17 +8,53 @@ export function toDateStr(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+// Kehrt toDateStr um ("YYYY-MM-DD" -> lokales Datum) — bewusst nicht
+// `new Date(s)`, das ISO-Datums-Strings ohne Uhrzeit als UTC-Mitternacht
+// interpretiert und je nach Zeitzone auf den Vortag zurückfallen kann.
+export function parseDateStr(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Zwei Datums-Listen zusammenführen, doppelte Kalendertage nur einmal
+// behalten, aufsteigend sortiert — z. B. normale Öffnungstage + Sondertage
+// mit Zusatzöffnung.
+export function mergeUniqueDates(base: Date[], extra: Date[]): Date[] {
+  const seen = new Set(base.map(toDateStr));
+  const merged = [...base];
+  for (const d of extra) {
+    const ds = toDateStr(d);
+    if (!seen.has(ds)) {
+      merged.push(d);
+      seen.add(ds);
+    }
+  }
+  return merged.sort((a, b) => a.getTime() - b.getTime());
+}
+
+// "HH:MM" oder "HH:MM:SS" (so liefert Postgres/PostgREST time-Spalten) -> Minuten seit
+// Mitternacht, für Zeitfenster-Vergleiche (z. B. Verfügbarkeits-Fenster gegen Schichtbeginn).
+export function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
 export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d;
 }
 
+// Anzahl Tage in einem Monat (1-indiziert, wie z. B. <select>-Optionen sie liefern).
+export function daysInMonthCount(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
 // Alle Tage des Kalendermonats, der `monthStart` (1. des Monats) enthält.
 export function daysInMonth(monthStart: Date): Date[] {
   const year = monthStart.getFullYear();
   const month = monthStart.getMonth();
-  const count = new Date(year, month + 1, 0).getDate();
+  const count = daysInMonthCount(year, month + 1);
   return Array.from({ length: count }, (_, i) => new Date(year, month, i + 1));
 }
 
@@ -33,15 +69,9 @@ export function monthDaysMatching(monthStart: Date, allowedDays: number[]): Date
 
 export const DAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 
-// Fallback, falls app_settings noch nicht geladen sind (Mi–So, Default-Konfiguration).
-export const RELEVANT_DAYS = [2, 3, 4, 5, 6];
-
-// Wochentage, für die ein Mitarbeiter vor dem Einreichen eine wiederkehrende
-// Verfügbarkeit braucht: Vereinigung aus den admin-einstellbaren Service- und
-// Back-Tagen (0=Mo..6=So), statt fest Mi–So anzunehmen.
-export function relevantDays(serviceDays: number[], bakeDays: number[]): number[] {
-  return Array.from(new Set([...serviceDays, ...bakeDays])).sort((a, b) => a - b);
-}
+// Fallback, falls app_settings noch nicht geladen sind (Do–So, Default-Konfiguration
+// von service_days).
+export const RELEVANT_DAYS = [3, 4, 5, 6];
 
 export const MONTH_NAMES = [
   "Januar", "Februar", "März", "April", "Mai", "Juni",

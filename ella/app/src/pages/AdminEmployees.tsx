@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { resetEmployeePassword, supabase } from "../lib/supabase";
+import { deleteEmployee, resetEmployeePassword, supabase } from "../lib/supabase";
 
 type EmployeeRow = {
   id: string;
@@ -11,17 +11,21 @@ type EmployeeRow = {
 };
 type BakeTeam = { id: string; name: string };
 
-// Erzeugt den Einladungstext für WhatsApp/Kopieren. window.location.origin ist
-// bewusst die Quelle für den Link: es ist genau die URL, unter der die
-// Admin-Person die App gerade selbst aufruft (egal ob LAN-IP:3050 oder eine
-// per nginx dahintergeschaltete eigene Domain) — kein separates "App-URL"-
-// Einstellungsfeld nötig, das sonst veralten könnte.
+const APP_URL = "https://ella.heimdns.de";
+
+// Erzeugt den Einladungstext für WhatsApp/Kopieren.
 function inviteMessage(name: string): string {
-  const appUrl = window.location.origin;
-  return `Hallo ${name}! 👋\n\nDu bist jetzt im Ella-Dienstplan freigeschaltet. Öffne den Link und melde dich mit deinem Namen "${name}" an – beim ersten Login legst du dein eigenes Passwort fest:\n\n${appUrl}`;
+  return (
+    `Hallo ${name}! 👋\n\n` +
+    `Du bist jetzt für den Ella Dienst- und Backplan freigeschaltet. So geht's:\n\n` +
+    `1. ${APP_URL} öffnen\n` +
+    `2. Mit deinem Namen "${name}" anmelden\n` +
+    `3. Beim ersten Login legst du dein eigenes Passwort fest\n\n` +
+    `Bis bald! 🧁`
+  );
 }
 
-export function AdminEmployees() {
+export function AdminEmployees({ currentEmployeeId }: { currentEmployeeId: string }) {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [teams, setTeams] = useState<BakeTeam[]>([]);
   const [newName, setNewName] = useState("");
@@ -61,6 +65,19 @@ export function AdminEmployees() {
     load();
   }
 
+  async function removeEmployee(e: EmployeeRow) {
+    if (
+      !confirm(
+        `Mitarbeiter "${e.name}" endgültig löschen? Zugewiesene Schichten werden freigegeben, das Login-Konto wird entfernt. Das kann nicht rückgängig gemacht werden.`
+      )
+    ) {
+      return;
+    }
+    const error = await deleteEmployee(e.id);
+    if (error) alert(error);
+    load();
+  }
+
   function inviteViaWhatsapp(name: string) {
     window.open(`https://wa.me/?text=${encodeURIComponent(inviteMessage(name))}`, "_blank");
   }
@@ -96,6 +113,7 @@ export function AdminEmployees() {
             <th>Aktiv</th>
             <th>Back-Truppe</th>
             <th>Login</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -142,6 +160,17 @@ export function AdminEmployees() {
                       {copiedId === e.id ? "Kopiert ✅" : "Text kopieren"}
                     </button>
                   </span>
+                )}
+              </td>
+              <td>
+                {e.id !== currentEmployeeId && (
+                  <button
+                    className="ghost"
+                    style={{ padding: "0.3rem 0.55rem", color: "var(--attention)" }}
+                    onClick={() => removeEmployee(e)}
+                  >
+                    Löschen
+                  </button>
                 )}
               </td>
             </tr>
