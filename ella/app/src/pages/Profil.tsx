@@ -10,6 +10,7 @@ import {
   isoDayOfWeek,
   toDateStr,
   formatDayMonth,
+  timeToMinutes,
   toMonthStr
 } from "../lib/dates";
 import { Avatar } from "../components/Avatar";
@@ -18,6 +19,19 @@ const DAYS = DAY_NAMES;
 
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
+}
+
+// An Tagen mit Frühschicht wird zwischen "nur Früh"/"nur Spät"/"ganztags"
+// unterschieden (Feedback: sonst kein Unterschied zwischen "kann früh" und
+// "kann spät" abbildbar) — kodiert über die bisher ungenutzten
+// from_time/to_time-Spalten. An Tagen ohne Frühschicht bleibt es bei den
+// einfachen zwei Optionen "kann"/"kann nicht" (from_time/to_time bleiben leer).
+type DayChoice = "no" | "frueh" | "spaet" | "full";
+const FRUEH_WINDOW = { from: "00:00", to: "13:00" };
+const SPAET_WINDOW = { from: "13:00", to: "23:59" };
+
+function sameTime(a: string | null, b: string): boolean {
+  return a != null && timeToMinutes(a) === timeToMinutes(b);
 }
 
 type AvailabilityEntry = {
@@ -51,6 +65,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [requiredDays, setRequiredDays] = useState<number[]>(RELEVANT_DAYS);
+  const [fruehDays, setFruehDays] = useState<number[]>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +78,10 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   // nicht anhand individueller Verfügbarkeit, daher wird dafür auch keine
   // eingetragen.
   useEffect(() => {
-    fetchAppSettings().then((s) => setRequiredDays(s.service_days));
+    fetchAppSettings().then((s) => {
+      setRequiredDays(s.service_days);
+      setFruehDays(s.frueh_days);
+    });
   }, []);
 
   async function load() {
@@ -138,16 +156,26 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const relevantDateStrs = new Set(relevantDates.map(toDateStr));
   const extraEntries = oneTimeEntries.filter((e) => !relevantDateStrs.has(e.specific_date as string));
 
-  async function setDayAvailability(dateStr: string, available: boolean) {
+  function choiceFor(entry: AvailabilityEntry | undefined): DayChoice | null {
+    if (!entry) return null;
+    if (!entry.available) return "no";
+    if (sameTime(entry.from_time, FRUEH_WINDOW.from) && sameTime(entry.to_time, FRUEH_WINDOW.to)) return "frueh";
+    if (sameTime(entry.from_time, SPAET_WINDOW.from) && sameTime(entry.to_time, SPAET_WINDOW.to)) return "spaet";
+    return "full";
+  }
+
+  async function setDayAvailability(dateStr: string, choice: DayChoice) {
+    const window = choice === "frueh" ? FRUEH_WINDOW : choice === "spaet" ? SPAET_WINDOW : null;
+    const patch = { available: choice !== "no", from_time: window?.from ?? null, to_time: window?.to ?? null };
     const existing = oneTimeByDate.get(dateStr);
     if (existing) {
-      await supabase.from("availability_entries").update({ available }).eq("id", existing.id);
+      await supabase.from("availability_entries").update(patch).eq("id", existing.id);
     } else {
       await supabase.from("availability_entries").insert({
         employee_id: employee.id,
         kind: "one_time",
         specific_date: dateStr,
-        available
+        ...patch
       });
     }
     load();
@@ -248,8 +276,8 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             <tbody>
               {relevantDates.map((d) => {
                 const dateStr = toDateStr(d);
-                const entry = oneTimeByDate.get(dateStr);
-                const available = entry?.available ?? null;
+                const choice = choiceFor(oneTimeByDate.get(dateStr));
+                const hasFrueh = fruehDays.includes(isoDayOfWeek(d));
                 return (
                   <tr key={dateStr}>
                     <td>
@@ -257,12 +285,31 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
                     </td>
                     <td>
                       <div className="segmented">
-                        <button className={available === true ? "on" : ""} onClick={() => setDayAvailability(dateStr, true)}>
-                          kann
-                        </button>
-                        <button className={available === false ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, false)}>
-                          kann nicht
-                        </button>
+                        {hasFrueh ? (
+                          <>
+                            <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
+                              kann nicht
+                            </button>
+                            <button className={choice === "frueh" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "frueh")}>
+                              Früh
+                            </button>
+                            <button className={choice === "spaet" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "spaet")}>
+                              Spät
+                            </button>
+                            <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
+                              ganztags
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
+                              kann
+                            </button>
+                            <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
+                              kann nicht
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -313,7 +360,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             <option value="yes">kann</option>
             <option value="no">kann nicht</option>
           </select>{" "}
-          <button className="ghost" onClick={() => setDayAvailability(newDate, newDateAvailable)}>Hinzufügen</button>
+          <button className="ghost" onClick={() => setDayAvailability(newDate, newDateAvailable ? "full" : "no")}>Hinzufügen</button>
         </p>
         <ul style={{ listStyle: "none", padding: 0 }}>
           {extraEntries.map((e) => (

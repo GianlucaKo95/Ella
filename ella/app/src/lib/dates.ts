@@ -8,6 +8,13 @@ export function toDateStr(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+// "HH:MM" oder "HH:MM:SS" (so liefert Postgres/PostgREST time-Spalten) -> Minuten seit
+// Mitternacht, für Zeitfenster-Vergleiche (z. B. Verfügbarkeits-Fenster gegen Schichtbeginn).
+export function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
 export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);

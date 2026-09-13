@@ -71,14 +71,15 @@ export function Kalender({ employee }: { employee: Employee }) {
   // Nur ein UX-Hinweis, keine harte Sperre: prüft per serverseitiger Funktion
   // (keine Rohdaten-Einsicht in fremde Verfügbarkeiten), ob der ausgewählte
   // Kollege an dem Tag laut eigener Angabe "kann nicht" eingetragen hat.
-  async function checkSwapTarget(colleagueId: string, dateStr: string) {
+  async function checkSwapTarget(colleagueId: string, dateStr: string, startTime: string) {
     if (!colleagueId) {
       setSwapTargetUnavailable(false);
       return;
     }
     const { data } = await supabase.rpc("is_colleague_available", {
       target_employee: colleagueId,
-      check_date: dateStr
+      check_date: dateStr,
+      check_start_time: startTime
     });
     setSwapTargetUnavailable(data === false);
   }
@@ -286,7 +287,7 @@ export function Kalender({ employee }: { employee: Employee }) {
                           value={swapTarget}
                           onChange={(e) => {
                             setSwapTarget(e.target.value);
-                            checkSwapTarget(e.target.value, s.date);
+                            checkSwapTarget(e.target.value, s.date, s.start_time);
                           }}
                         >
                           <option value="">Kolleg:in wählen…</option>

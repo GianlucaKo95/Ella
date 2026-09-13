@@ -299,6 +299,7 @@ button.ghost {
 /* ---- Segmentierte Auswahl (kann / kann nicht, Früh / Spät, ...) ---- */
 .segmented {
   display: inline-flex;
+  flex-wrap: wrap;
   background: var(--surface-2);
   border-radius: 999px;
   padding: 3px;
@@ -310,6 +311,7 @@ button.ghost {
   color: var(--ink-soft);
   font-size: 0.74rem;
   padding: 0.4rem 0.85rem;
+  white-space: nowrap;
 }
 .segmented button.on { background: var(--mint); color: white; }
 .segmented button.off-on { background: var(--attention); color: white; }

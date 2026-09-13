@@ -10,6 +10,7 @@ import {
   toMonthStr,
   billingPeriod,
   formatDayMonth,
+  timeToMinutes,
   addMonths,
   monthStartOf
 } from "../lib/dates";
@@ -21,6 +22,8 @@ type AvailabilityRow = {
   day_of_week: number | null;
   specific_date: string | null;
   available: boolean;
+  from_time: string | null;
+  to_time: string | null;
 };
 type StaffingReq = {
   day_of_week: number;
@@ -269,17 +272,24 @@ export function AdminPlanning() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planMonth, savedServiceDays, savedBakeDays]);
 
-  function availabilityFor(employeeId: string, date: Date, dateStr: string): "kann" | "kann nicht" | "unbekannt" {
+  // shiftStartTime prüft bei gesetztem Zeitfenster (from_time/to_time, "nur
+  // Früh"/"nur Spät" aus dem Profil) zusätzlich, ob die konkrete Schicht in
+  // dieses Fenster fällt — ohne Fenster (ganztags) zählt die Verfügbarkeit
+  // für jede Schicht des Tages.
+  function availabilityFor(employeeId: string, date: Date, dateStr: string, shiftStartTime: string): "kann" | "kann nicht" | "unbekannt" {
     const dow = isoDayOfWeek(date);
-    const oneTime = availability.find(
-      (a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr
-    );
-    if (oneTime) return oneTime.available ? "kann" : "kann nicht";
-    const recurring = availability.find(
-      (a) => a.employee_id === employeeId && a.kind === "recurring" && a.day_of_week === dow
-    );
-    if (recurring) return recurring.available ? "kann" : "kann nicht";
-    return "unbekannt";
+    const entry =
+      availability.find((a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr) ??
+      availability.find((a) => a.employee_id === employeeId && a.kind === "recurring" && a.day_of_week === dow);
+    if (!entry) return "unbekannt";
+    if (!entry.available) return "kann nicht";
+    if (entry.from_time && entry.to_time) {
+      const start = timeToMinutes(shiftStartTime);
+      const from = timeToMinutes(entry.from_time);
+      const to = timeToMinutes(entry.to_time);
+      return start >= from && start < to ? "kann" : "kann nicht";
+    }
+    return "kann";
   }
 
   async function addShift(
@@ -521,7 +531,7 @@ export function AdminPlanning() {
                             <option value="">– wählen –</option>
                             {employees.map((emp) => (
                               <option key={emp.id} value={emp.id}>
-                                {emp.name} ({availabilityFor(emp.id, d, dateStr)})
+                                {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
                               </option>
                             ))}
                           </select>
