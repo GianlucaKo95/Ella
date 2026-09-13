@@ -154,7 +154,12 @@ Auth ein E-Mail-Feld erwartet. Jeder spätere Login läuft ganz regulär über
 `supabase.auth.signInWithPassword()` mit derselben Adresse, ohne weiteren Edge-Function-Umweg.
 Ein bereits vergebenes Passwort kann darüber nicht überschrieben werden (`set-password` lehnt
 ab, wenn `auth_user_id` schon gesetzt ist) — ein Passwort-Reset ist aktuell nur direkt in
-Supabase möglich, siehe §14.
+Supabase möglich, siehe §14. `verify_jwt` ist für `set-password` (wie für `ics-feed`) bewusst
+aus (`supabase/config.toml`) — mit `verify_jwt = true` prüft die Supabase-Plattform den
+Auth-Header schon vor dem eigenen CORS-Code der Function, was den Browser-Preflight (OPTIONS)
+blockieren und im Frontend als "Failed to send a request to the Edge Function" aufschlagen
+kann. Berechtigung prüft die Funktion ohnehin selbst über die `employeeId` in der DB, nicht
+über den Aufrufer-JWT.
 
 ## 13. Kalender-Export (ICS)
 Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.

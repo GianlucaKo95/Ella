@@ -4,6 +4,11 @@
 // Danach meldet sich das Frontend ganz normal über
 // supabase.auth.signInWithPassword() mit derselben (synthetischen) Adresse an —
 // diese Function stellt keine Session aus, sie legt nur das Konto an.
+// verify_jwt bewusst aus (siehe supabase/config.toml): die Plattform-JWT-
+// Prüfung kann sonst schon den CORS-Preflight (OPTIONS) blockieren, bevor der
+// eigene CORS-Code unten läuft. Die Funktion prüft Berechtigung ohnehin
+// selbst über employeeId + fehlende auth_user_id, nicht über den
+// Aufrufer-JWT — gleiches Vertrauensmodell wie ics-feed.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 

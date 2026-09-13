@@ -60,12 +60,34 @@ function loginEmail(employeeId: string): string {
 
 // Erster Login: legt per Edge Function (Service-Role, da admin.createUser
 // nötig ist) das Konto mit dem selbst gewählten Passwort an.
+//
+// Bewusst ein direkter fetch() auf den Pfad unter supabaseUrl statt
+// supabase.functions.invoke(): Der Supabase-JS-Client leitet Function-Aufrufe
+// bei einer *.supabase.co-URL standardmäßig auf eine eigene
+// *.functions.supabase.co-Subdomain um. Ist diese Subdomain im Netzwerk des
+// Geräts (z. B. durch DNS-Filter/Firewall) nicht erreichbar, schlägt genau
+// dieser Aufruf mit "Failed to send a request to the Edge Function" fehl,
+// obwohl die normale REST-API (gleiche Domain wie oben) funktioniert. Der
+// Pfad /functions/v1/<name> unter derselben, bereits erreichbaren Domain
+// funktioniert immer, auch selbst-gehostet.
 export async function setInitialPassword(employeeId: string, password: string): Promise<string | null> {
-  const { data, error } = await supabase.functions.invoke("set-password", {
-    body: { employeeId, password }
-  });
-  if (error || !data?.ok) {
-    return (data as { error?: string })?.error || error?.message || "Passwort konnte nicht gesetzt werden";
+  let response: Response;
+  try {
+    response = await fetch(`${supabaseUrl}/functions/v1/set-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`
+      },
+      body: JSON.stringify({ employeeId, password })
+    });
+  } catch {
+    return "Server nicht erreichbar. Bitte Internetverbindung prüfen.";
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.ok) {
+    return data?.error || "Passwort konnte nicht gesetzt werden";
   }
   return null;
 }
