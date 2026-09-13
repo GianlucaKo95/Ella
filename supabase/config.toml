@@ -1,11 +1,15 @@
 # Hält verify_jwt für die Edge Functions fest, damit ein künftiges
 # `supabase functions deploy <name>` nicht auf den CLI-Default (true)
-# zurückfällt — beide Functions prüfen Berechtigung selbst über die
-# employeeId in der DB, nicht über den Aufrufer-JWT, und müssen auch ohne
-# gültigen Supabase-Auth-Header aufrufbar sein (externe Kalender-Apps bei
-# ics-feed, CORS-Preflight bei set-password).
+# zurückfällt — die Functions prüfen Berechtigung selbst (employeeId in der
+# DB, bzw. bei reset-password zusätzlich den mitgeschickten Bearer-Token im
+# Code), nicht über die Plattform-JWT-Prüfung, die sonst schon den
+# CORS-Preflight blockieren kann und auch für externe Kalender-Apps bei
+# ics-feed nicht greifen darf.
 [functions.ics-feed]
 verify_jwt = false
 
 [functions.set-password]
+verify_jwt = false
+
+[functions.reset-password]
 verify_jwt = false

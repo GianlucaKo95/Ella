@@ -58,9 +58,6 @@ function loginEmail(employeeId: string): string {
   return `${employeeId}@login.ella.internal`;
 }
 
-// Erster Login: legt per Edge Function (Service-Role, da admin.createUser
-// nötig ist) das Konto mit dem selbst gewählten Passwort an.
-//
 // Bewusst ein direkter fetch() auf den Pfad unter supabaseUrl statt
 // supabase.functions.invoke(): Der Supabase-JS-Client leitet Function-Aufrufe
 // bei einer *.supabase.co-URL standardmäßig auf eine eigene
@@ -69,27 +66,40 @@ function loginEmail(employeeId: string): string {
 // dieser Aufruf mit "Failed to send a request to the Edge Function" fehl,
 // obwohl die normale REST-API (gleiche Domain wie oben) funktioniert. Der
 // Pfad /functions/v1/<name> unter derselben, bereits erreichbaren Domain
-// funktioniert immer, auch selbst-gehostet.
-export async function setInitialPassword(employeeId: string, password: string): Promise<string | null> {
+// funktioniert immer, auch selbst-gehostet. accessToken ist nur bei
+// Funktionen nötig, die den Aufrufer selbst prüfen (z. B. reset-password);
+// ohne accessToken wird der anon-Key als Bearer-Token mitgeschickt.
+async function callEdgeFunction(
+  name: string,
+  body: unknown,
+  accessToken?: string
+): Promise<{ ok: boolean; error?: string; [key: string]: unknown }> {
   let response: Response;
   try {
-    response = await fetch(`${supabaseUrl}/functions/v1/set-password`, {
+    response = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`
+        Authorization: `Bearer ${accessToken || supabaseAnonKey}`
       },
-      body: JSON.stringify({ employeeId, password })
+      body: JSON.stringify(body)
     });
   } catch {
-    return "Server nicht erreichbar. Bitte Internetverbindung prüfen.";
+    return { ok: false, error: "Server nicht erreichbar. Bitte Internetverbindung prüfen." };
   }
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.ok) {
-    return data?.error || "Passwort konnte nicht gesetzt werden";
+    return { ok: false, error: data?.error || "Anfrage fehlgeschlagen" };
   }
-  return null;
+  return data;
+}
+
+// Erster Login: legt per Edge Function (Service-Role, da admin.createUser
+// nötig ist) das Konto mit dem selbst gewählten Passwort an.
+export async function setInitialPassword(employeeId: string, password: string): Promise<string | null> {
+  const result = await callEdgeFunction("set-password", { employeeId, password });
+  return result.ok ? null : result.error || "Passwort konnte nicht gesetzt werden";
 }
 
 // Normale Anmeldung mit Name (-> employeeId) + Passwort, ganz regulär über
@@ -100,6 +110,20 @@ export async function signInWithName(employeeId: string, password: string): Prom
     password
   });
   return error ? "Falscher Name oder falsches Passwort" : null;
+}
+
+// Admin setzt das Passwort eines Mitarbeiters zurück (löscht dessen
+// Login-Konto, employees.auth_user_id wird wieder null) — die Person legt
+// beim nächsten Login-Versuch wie beim allerersten Mal ein neues Passwort
+// selbst fest. Braucht den Access-Token des aufrufenden Admins, damit die
+// Function die Berechtigung prüfen kann.
+export async function resetEmployeePassword(employeeId: string): Promise<string | null> {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session) return "Nicht angemeldet";
+  const result = await callEdgeFunction("reset-password", { employeeId }, session.access_token);
+  return result.ok ? null : result.error || "Passwort konnte nicht zurückgesetzt werden";
 }
 
 export async function fetchCurrentEmployee(): Promise<Employee | null> {

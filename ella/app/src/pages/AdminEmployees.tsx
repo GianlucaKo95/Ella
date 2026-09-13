@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { resetEmployeePassword, supabase } from "../lib/supabase";
 
 type EmployeeRow = {
   id: string;
@@ -7,6 +7,7 @@ type EmployeeRow = {
   role: "admin" | "employee";
   active: boolean;
   bake_team_id: string | null;
+  auth_user_id: string | null;
 };
 type BakeTeam = { id: string; name: string };
 
@@ -40,6 +41,15 @@ export function AdminEmployees() {
     load();
   }
 
+  async function resetPassword(e: EmployeeRow) {
+    if (!confirm(`Passwort von ${e.name} zurücksetzen? Die Person muss sich beim nächsten Login neu ein Passwort vergeben.`)) {
+      return;
+    }
+    const error = await resetEmployeePassword(e.id);
+    if (error) alert(error);
+    load();
+  }
+
   return (
     <div>
       <h2>Mitarbeiter</h2>
@@ -59,6 +69,7 @@ export function AdminEmployees() {
             <th>Rolle</th>
             <th>Aktiv</th>
             <th>Back-Truppe</th>
+            <th>Login</th>
           </tr>
         </thead>
         <tbody>
@@ -90,6 +101,15 @@ export function AdminEmployees() {
                     </option>
                   ))}
                 </select>
+              </td>
+              <td>
+                {e.auth_user_id ? (
+                  <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => resetPassword(e)}>
+                    Passwort zurücksetzen
+                  </button>
+                ) : (
+                  <span style={{ fontSize: "0.72rem", color: "var(--ink-soft)" }}>noch kein Login</span>
+                )}
               </td>
             </tr>
           ))}

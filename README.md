@@ -35,11 +35,12 @@ docs/
    supabase db push
    ```
 2. **Edge Functions** deployen (`supabase/config.toml` setzt `verify_jwt = false` für
-   beide — sonst kann die Supabase-Plattform-JWT-Prüfung den Browser-CORS-Preflight
+   alle drei — sonst kann die Supabase-Plattform-JWT-Prüfung den Browser-CORS-Preflight
    blockieren, siehe docs/ARCHITECTURE.md §12):
    ```
    supabase functions deploy ics-feed
    supabase functions deploy set-password
+   supabase functions deploy reset-password
    ```
 3. Ersten Admin-Mitarbeiter anlegen: einen Eintrag in der Tabelle `employees` mit
    `role = 'admin'` erstellen (Name reicht, `auth_user_id` wird beim ersten Login mit
@@ -94,5 +95,3 @@ npm run dev
 - PWA-Icons (`icon-192.png`, `icon-512.png`) in `ella/app/public/` ergänzen.
 - Benachrichtigungen bei Veröffentlichung (HA-Notify / Web-Push) sind als TODO markiert —
   aktuell wird beim Veröffentlichen nur der Status auf `published` gesetzt, ohne Push.
-- Kein Passwort-Reset im Admin-UI, falls ein Mitarbeiter sein Passwort vergisst (siehe
-  docs/ARCHITECTURE.md §14).

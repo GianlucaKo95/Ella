@@ -137,7 +137,7 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 
 ## 10. Admin-Ansicht: Planung / Team
 - **Planung** (`/admin/planung`): Einstellungen (§8), **Kuchen-Stammdaten** (Name, Einheit, Zutaten, Backanleitung — CRUD, nur hier gepflegte Kuchen stehen im Backplan weiter unten als Auswahl zur Verfügung, kein Freitext), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
-- **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar).
+- **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar), "Passwort zurücksetzen" je Mitarbeiter mit bestehendem Login (§12).
 
 ## 11. Monatlicher Verfügbarkeits-Stichtag
 `availability_deadlines` (ein Stichtag pro Monat) + `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (§8/§9) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
@@ -153,8 +153,15 @@ Auth-Konto an (`admin.createUser`, verknüpft `employees.auth_user_id`) — mit 
 Auth ein E-Mail-Feld erwartet. Jeder spätere Login läuft ganz regulär über
 `supabase.auth.signInWithPassword()` mit derselben Adresse, ohne weiteren Edge-Function-Umweg.
 Ein bereits vergebenes Passwort kann darüber nicht überschrieben werden (`set-password` lehnt
-ab, wenn `auth_user_id` schon gesetzt ist) — ein Passwort-Reset ist aktuell nur direkt in
-Supabase möglich, siehe §14. `verify_jwt` ist für `set-password` (wie für `ics-feed`) bewusst
+ab, wenn `auth_user_id` schon gesetzt ist) — dafür gibt es "Passwort zurücksetzen" im
+Mitarbeiter-Tab (Admin-Ansicht, §10): Edge Function `reset-password` löscht den Auth-User des
+Mitarbeiters und setzt `auth_user_id` auf `null`, die Person landet damit wieder im
+"Erster Login"-Zustand. Anders als `set-password`/`ics-feed` prüft `reset-password` die
+Berechtigung nicht über die employeeId, sondern verifiziert per mitgeschicktem
+Access-Token, dass der Aufrufer selbst ein Admin ist (`admin.auth.getUser(token)` +
+`employees.role`) — `verify_jwt` bleibt trotzdem aus (siehe unten), sonst würde die
+Plattform-Prüfung wieder vor diesem eigenen Check greifen. `verify_jwt` ist für `set-password`
+(wie für `ics-feed`) bewusst
 aus (`supabase/config.toml`) — mit `verify_jwt = true` prüft die Supabase-Plattform den
 Auth-Header schon vor dem eigenen CORS-Code der Function, was den Browser-Preflight (OPTIONS)
 blockieren und im Frontend als "Failed to send a request to the Edge Function" aufschlagen
@@ -170,7 +177,6 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 - **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
 - **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.
-- **Kein Passwort-Reset im Admin-UI**: Vergisst ein Mitarbeiter sein Passwort, hilft aktuell nur ein manueller Eingriff direkt in Supabase (Auth-User löschen, `employees.auth_user_id` auf `null` setzen, danach kann der Name erneut ein Erstpasswort festlegen) — ein Admin-Button dafür ist eine naheliegende nächste Iteration.
 - Mehrere Cafés/Standorte: aktuell bewusst single-tenant angenommen.
 - **Kein armv7 (32-bit) mehr unterstützt**: Der aktuelle `home-assistant/builder` (2026.06.0) baut nur noch aarch64/amd64 — 32-bit-Hosts (ältere Raspberry-Pi-Installationen mit 32-bit-OS) können das Add-on-Image daher nicht mehr ziehen; sie müssten es lokal aus dem Dockerfile bauen, was mangels 32-bit-Basis-Image ebenfalls nicht mehr funktioniert.
 
