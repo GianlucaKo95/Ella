@@ -89,7 +89,8 @@ announcements                             -- "Aktuelles" (Home-Screen)
 app_settings                              -- Singleton (genau 1 Zeile, id=true)
   billing_period_start_day (1-28, Default 1),
   service_days (smallint[], 0=Mo..6=So, nicht leer, Default {3,4,5,6}),
-  bake_days   (smallint[], 0=Mo..6=So, nicht leer, Default {2,3,4})
+  bake_days   (smallint[], 0=Mo..6=So, nicht leer, Default {2,3,4}),
+  has_frueh_shift (bool, Default true)      -- steuert nur die UI, siehe §8
 
 notifications_log                         -- In-App-Benachrichtigungen (Glocke)
   id, type ('shift_published'|'bake_plan_published'|'announcement'),
@@ -121,10 +122,15 @@ RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte 
 `service_days`/`bake_days` sind laufzeit-konfigurierbar, ein reiner `CHECK`-Constraint kann aber nicht gegen eine andere Tabelle prüfen. Deshalb validieren zwei `BEFORE INSERT/UPDATE OF date`-Trigger-Funktionen (`check_shift_service_day` auf `shifts`, `check_bake_plan_day` auf `bake_plan_entries`) jedes neue/geänderte Datum gegen die aktuellen `app_settings`-Werte und lehnen mit einer Exception ab, wenn der Wochentag nicht erlaubt ist. Das ersetzt die ursprünglichen festen `isodow`-Checks (Migration 0001) vollständig (Migration 0006).
 
 ## 8. Admin-Einstellungen (`app_settings`)
-Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Einstellungen":
+Eine globale, admin-editierbare Konfiguration, gebündelt im eigenen "Einstellungen"-Tab der
+Admin-Planung (§10) — bewusst getrennt von der eigentlichen Schicht-/Backplanung, damit dort nur
+die tagesaktuelle Planungsarbeit sichtbar ist:
 - **Abrechnungszeitraum** (`billing_period_start_day`): an welchem Tag des Monats der Zeitraum beginnt, der für die „voraussichtlichen Stunden" im Mitarbeiter-Kalender zählt. `1` = klassischer Kalendermonat. Betrifft **ausschließlich** diese Stundenanzeige.
 - **Service-/Back-Tage** (`service_days`/`bake_days`): Wochentags-Toggle, bestimmen welche Wochentage in der Monatsplanung (§10) als Service- bzw. Back-Tage gelten, z. B. um die Back-Tage zu reduzieren, wenn weniger gebacken werden muss. Die Vereinigung beider Mengen (`relevantDays`) bestimmt, für welche Wochentage ein Mitarbeiter vor dem Einreichen eine wiederkehrende Verfügbarkeit braucht (§9).
+- **Frühschicht an/aus** (`has_frueh_shift`, Migration 0012): globaler Schalter, ob es überhaupt eine Frühschicht gibt. Aus schaltet in der Schichtplanung (§10) nur die "+ Früh"-Buttons ab — bereits angelegte Frühschicht-Einträge bleiben unangetastet, `staffing_requirements` mit `shift_type = 'frueh'` werden weiterhin angezeigt (Bedarfstext), aber niemand kann darüber neue Frühschichten anlegen.
 - **Back-Truppen** (`bake_teams`): eigene Karte zum Anlegen/Umbenennen/Löschen einer Truppe sowie zur Mitgliederverwaltung (Mitarbeiter zuordnen/entfernen/umhängen), technisch weiterhin über `employees.bake_team_id`.
+- **Kuchen-Stammdaten**: Name, Einheit, Zutaten, Backanleitung — CRUD, nur hier gepflegte Kuchen stehen im Backplan als Auswahl zur Verfügung, kein Freitext. Jeder Kuchen ist eingeklappt (nur Name antippbar) und öffnet sich erst beim Antippen für Details/Bearbeitung — bei vielen Kuchen bleibt die Liste sonst unübersichtlich.
+- **Verfügbarkeits-Stichtag** (§11) samt Einreichungsstatus je Mitarbeiter für den kommenden Monat.
 
 **Wichtig**: Der Abrechnungszeitraum und die Planungs-Zeiträume sind bewusst entkoppelt — die Schicht-/Backplanung durch den Admin läuft immer über den vollen Kalendermonat (§10), unabhängig vom eingestellten Abrechnungszeitraum.
 
@@ -136,7 +142,12 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 - **Profil** (`/profil`): editierbarer Anzeigename (`update_my_name`), die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten je Wochentag, Ausnahmen je Einzeldatum. Welche Wochentage für das Einreichen vollständig sein müssen, ergibt sich dynamisch aus `relevantDays` (§8) statt fest Mi–So zu sein.
 
 ## 10. Admin-Ansicht: Planung / Team
-- **Planung** (`/admin/planung`): Einstellungen (§8), **Kuchen-Stammdaten** (Name, Einheit, Zutaten, Backanleitung — CRUD, nur hier gepflegte Kuchen stehen im Backplan weiter unten als Auswahl zur Verfügung, kein Freitext), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
+- **Planung** (`/admin/planung`): drei Tabs (segmentierter Umschalter oben, wie das kann/kann-nicht-Segment in der Verfügbarkeit), bewusst getrennt, damit nicht alles auf einer langen Seite untereinandersteht:
+  - **Schichtplanung**: Monatsnavigation (Zustand wird mit dem Backplanung-Tab geteilt, derselbe Monat), "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" gefiltert auf `entity = 'shift'`, eigener "Dienstplan veröffentlichen"-Button (nur Schichten, löst `shift_published`-Benachrichtigungen an die zugewiesenen Mitarbeiter aus), Dienstplan für den **gesamten angezeigten Kalendermonat** (alle Tage laut `service_days`) mit Zuweisung inkl. Verfügbarkeits-Hinweis; "+ Früh"-Buttons nur sichtbar, wenn `has_frueh_shift` an ist (§8).
+  - **Backplanung**: dieselbe Monatsnavigation, "Änderungsprotokoll" gefiltert auf `entity = 'bake_entry'`, eigener "Backplan veröffentlichen"-Button (nur Backeinträge; Backeintrag ohne Truppe zeigt zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen), Backplan für alle Tage laut `bake_days`. Ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus.
+  - **Einstellungen** (§8): Abrechnungszeitraum, Service-/Back-Tage, Frühschicht-Schalter, Back-Truppen, Kuchen-Stammdaten, Verfügbarkeits-Stichtag — alles, was Konfiguration statt tagesaktueller Planung ist.
+
+  Dienstplan- und Backplan-Veröffentlichung sind seit dieser Trennung bewusst **unabhängig** voneinander (vorher ein gemeinsamer Button für beides).
 - **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar), "Passwort zurücksetzen" je Mitarbeiter mit bestehendem Login (§12).
 
 ## 11. Monatlicher Verfügbarkeits-Stichtag
