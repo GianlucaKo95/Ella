@@ -294,7 +294,7 @@ export function AdminPlanning() {
       shift_type,
       role_tag,
       start_time: start_time ?? (shift_type === "frueh" ? "07:00" : "13:00"),
-      end_time: end_time ?? (shift_type === "frueh" ? "13:00" : "19:00"),
+      end_time: end_time ?? (shift_type === "frueh" ? "13:00" : "18:00"),
       status: "draft"
     });
     loadAll();
@@ -558,7 +558,7 @@ export function AdminPlanning() {
                     </select>
                     <button
                       className="ghost"
-                      onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "19:00")}
+                      onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "18:00")}
                     >
                       + Spät
                     </button>

@@ -31,7 +31,7 @@ Alle drei sind inzwischen admin-einstellbar (Details in §8), mit diesen Startwe
 - Backen: standardmäßig **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten** — Backen und Service überlappen sich nie am selben Tag in der Zeit, aber das System erzwingt das aktuell nicht automatisch (offene Frage, §14).
 - Back-Truppen: standardmäßig **3** (Seed-Daten), Anzahl ergibt sich aus den Zeilen in `bake_teams`, nicht mehr aus einer fixen Annahme.
 - Nur die **Frühschicht** unterscheidet Küche/Service; die **Spätschicht** kennt diese Aufteilung nicht.
-- **Samstags** ist die Spätschicht in der Praxis zwei Slots mit unterschiedlicher Startzeit: 13 Uhr (meist 1 Person) und 14 Uhr (meist 2 Personen), beide bis 19 Uhr. Kein eigenes Datenmodell dafür nötig — `shifts.start_time` trägt das schon, die Schichtplanung (§10) zeigt an Samstagen deshalb neben "+ Spät" ein Uhrzeit-Dropdown (13:00/14:00) statt der sonst festen 13:00.
+- **Samstags** ist die Spätschicht in der Praxis zwei Slots mit unterschiedlicher Startzeit: 13 Uhr (meist 1 Person) und 14 Uhr (meist 2 Personen), beide bis 18 Uhr (offizieller Ladenschluss; danach wird nur noch aufgeräumt). Kein eigenes Datenmodell dafür nötig — `shifts.start_time` trägt das schon, die Schichtplanung (§10) zeigt an Samstagen deshalb neben "+ Spät" ein Uhrzeit-Dropdown (13:00/14:00) statt der sonst festen 13:00.
 
 ## 6. Datenmodell
 
