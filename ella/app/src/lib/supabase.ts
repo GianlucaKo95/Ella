@@ -143,20 +143,22 @@ export type AppSettings = {
   // Wochentage 0=Montag .. 6=Sonntag
   service_days: number[];
   bake_days: number[];
-  has_frueh_shift: boolean;
+  // An diesen Tagen ist normalerweise eine Frühschicht (meistens nur Sa/So) —
+  // an anderen Tagen bleibt sie als Ausnahme weiterhin manuell anlegbar.
+  frueh_days: number[];
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   billing_period_start_day: 1,
   service_days: [3, 4, 5, 6],
   bake_days: [2, 3, 4],
-  has_frueh_shift: true
+  frueh_days: [5, 6]
 };
 
 export async function fetchAppSettings(): Promise<AppSettings> {
   const { data, error } = await supabase
     .from("app_settings")
-    .select("billing_period_start_day,service_days,bake_days,has_frueh_shift")
+    .select("billing_period_start_day,service_days,bake_days,frueh_days")
     .eq("id", true)
     .maybeSingle();
   if (error || !data) return DEFAULT_APP_SETTINGS;

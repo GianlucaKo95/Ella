@@ -80,14 +80,18 @@ export function AdminPlanning() {
   const [deadline, setDeadline] = useState<string>("");
   const [submissions, setSubmissions] = useState<{ employee_id: string; submitted_at: string }[]>([]);
   const [billingStartDay, setBillingStartDay] = useState(1);
-  const [hasFruehShift, setHasFruehShift] = useState(true);
   // Zuletzt gespeicherte Einstellungen — bestimmen, was tatsächlich geplant wird.
   const [savedServiceDays, setSavedServiceDays] = useState<number[]>([3, 4, 5, 6]);
   const [savedBakeDays, setSavedBakeDays] = useState<number[]>([2, 3, 4]);
+  const [savedFruehDays, setSavedFruehDays] = useState<number[]>([5, 6]);
   // Unsaved Entwurf der Checkbox-Auswahl, bis "Tage speichern" geklickt wird.
   const [serviceDays, setServiceDaysState] = useState<number[]>(savedServiceDays);
   const [bakeDays, setBakeDaysState] = useState<number[]>(savedBakeDays);
+  const [fruehDays, setFruehDaysState] = useState<number[]>(savedFruehDays);
   const [savingSettings, setSavingSettings] = useState(false);
+  // Tage, an denen der Admin bewusst eine Ausnahme-Frühschicht freigeschaltet
+  // hat, obwohl der Wochentag laut savedFruehDays normalerweise keine hat.
+  const [fruehExceptionDates, setFruehExceptionDates] = useState<Set<string>>(new Set());
   const [newTeamName, setNewTeamName] = useState("");
   const [newCakeName, setNewCakeName] = useState("");
   const [newCakeUnit, setNewCakeUnit] = useState("blech");
@@ -96,7 +100,10 @@ export function AdminPlanning() {
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
-  const dayRulesDirty = serviceDays.join() !== savedServiceDays.join() || bakeDays.join() !== savedBakeDays.join();
+  const dayRulesDirty =
+    serviceDays.join() !== savedServiceDays.join() ||
+    bakeDays.join() !== savedBakeDays.join() ||
+    fruehDays.join() !== savedFruehDays.join();
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -166,13 +173,6 @@ export function AdminPlanning() {
     setSavingSettings(false);
   }
 
-  async function saveHasFruehShift(value: boolean) {
-    setSavingSettings(true);
-    await supabase.from("app_settings").update({ has_frueh_shift: value }).eq("id", true);
-    setHasFruehShift(value);
-    setSavingSettings(false);
-  }
-
   function toggleDay(list: number[], setList: (v: number[]) => void, day: number) {
     setList(list.includes(day) ? list.filter((d) => d !== day) : [...list, day].sort((a, b) => a - b));
   }
@@ -182,10 +182,11 @@ export function AdminPlanning() {
     setSavingSettings(true);
     await supabase
       .from("app_settings")
-      .update({ service_days: serviceDays, bake_days: bakeDays })
+      .update({ service_days: serviceDays, bake_days: bakeDays, frueh_days: fruehDays })
       .eq("id", true);
     setSavedServiceDays(serviceDays);
     setSavedBakeDays(bakeDays);
+    setSavedFruehDays(fruehDays);
     setSavingSettings(false);
   }
 
@@ -256,7 +257,8 @@ export function AdminPlanning() {
       setSavedBakeDays(s.bake_days);
       setServiceDaysState(s.service_days);
       setBakeDaysState(s.bake_days);
-      setHasFruehShift(s.has_frueh_shift);
+      setSavedFruehDays(s.frueh_days);
+      setFruehDaysState(s.frueh_days);
     });
   }, []);
 
@@ -523,12 +525,20 @@ export function AdminPlanning() {
                     ))}
                   </tbody>
                 </table>
-                {hasFruehShift && (
+                {(savedFruehDays.includes(dow) || fruehExceptionDates.has(dateStr)) ? (
                   <>
                     <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
                     <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
                   </>
-                )}
+                ) : (
+                  <button
+                    className="ghost"
+                    style={{ fontSize: "0.7rem" }}
+                    onClick={() => setFruehExceptionDates((prev) => new Set(prev).add(dateStr))}
+                  >
+                    + Ausnahme: Frühschicht
+                  </button>
+                )}{" "}
                 <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
               </div>
             );
@@ -720,36 +730,42 @@ export function AdminPlanning() {
                   </button>
                 ))}
               </div>
-              {(serviceDays.length === 0 || bakeDays.length === 0) && (
-                <p className="hint warn">Mindestens ein Tag muss jeweils ausgewählt sein.</p>
-              )}
-              {dayRulesDirty && serviceDays.length > 0 && bakeDays.length > 0 && (
-                <p className="hint warn">Ungespeicherte Änderung — wirkt sich erst nach "Tage speichern" auf die Planung aus.</p>
-              )}
-              <button
-                style={{ marginTop: "0.3rem" }}
-                disabled={savingSettings || serviceDays.length === 0 || bakeDays.length === 0 || !dayRulesDirty}
-                onClick={saveDayRules}
-              >
-                Tage speichern
-              </button>
             </div>
 
             <div className="field" style={{ marginTop: "0.8rem" }}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={hasFruehShift}
-                  disabled={savingSettings}
-                  onChange={(e) => saveHasFruehShift(e.target.checked)}
-                />{" "}
-                Es gibt eine Frühschicht
-              </label>
+              <label>An diesen Tagen ist normalerweise eine Frühschicht</label>
+              <div className="day-toggle-row">
+                {DAY_NAMES.map((name, idx) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={fruehDays.includes(idx) ? "" : "ghost"}
+                    onClick={() => toggleDay(fruehDays, setFruehDaysState, idx)}
+                  >
+                    {name.slice(0, 2)}
+                  </button>
+                ))}
+              </div>
               <p className="hint">
-                Aus, wenn an Service-Tagen nur die Spätschicht geplant wird — die Schichtplanung bietet dann kein
-                "+ Früh" mehr an. Bereits angelegte Frühschichten bleiben erhalten.
+                An anderen Tagen bietet die Schichtplanung "+ Ausnahme: Frühschicht" statt der Früh-Buttons an —
+                eine Frühschicht bleibt dort also weiterhin für Sonderfälle möglich, ist aber nicht der Normalfall.
+                Leere Auswahl ist erlaubt (nie normalerweise).
               </p>
             </div>
+
+            {(serviceDays.length === 0 || bakeDays.length === 0) && (
+              <p className="hint warn">Service- und Back-Tage brauchen mindestens einen Tag.</p>
+            )}
+            {dayRulesDirty && serviceDays.length > 0 && bakeDays.length > 0 && (
+              <p className="hint warn">Ungespeicherte Änderung — wirkt sich erst nach "Tage speichern" auf die Planung aus.</p>
+            )}
+            <button
+              style={{ marginTop: "0.3rem" }}
+              disabled={savingSettings || serviceDays.length === 0 || bakeDays.length === 0 || !dayRulesDirty}
+              onClick={saveDayRules}
+            >
+              Tage speichern
+            </button>
           </div>
 
           <div className="card">
