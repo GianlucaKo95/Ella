@@ -1,18 +1,50 @@
-import { useState } from "react";
-import { supabase } from "../lib/supabase";
+import { useEffect, useState } from "react";
+import {
+  fetchLoginNames,
+  findLoginName,
+  setInitialPassword,
+  signInWithName,
+  type LoginName
+} from "../lib/supabase";
 
 export function Login() {
-  const [email, setEmail] = useState("");
+  const [names, setNames] = useState<LoginName[]>([]);
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchLoginNames().then(setNames);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
+
+    const match = findLoginName(names, name);
+    if (!match) {
+      setError("Unbekannter Name");
+      return;
+    }
+
+    setLoading(true);
+    if (!match.has_account) {
+      if (password.length < 6) {
+        setError("Passwort muss mindestens 6 Zeichen haben");
+        setLoading(false);
+        return;
+      }
+      const createError = await setInitialPassword(match.id, password);
+      if (createError) {
+        setError(createError);
+        setLoading(false);
+        return;
+      }
+    }
+
+    const signInError = await signInWithName(match.id, password);
+    if (signInError) setError(signInError);
     setLoading(false);
   }
 
@@ -34,13 +66,14 @@ export function Login() {
         <form onSubmit={handleSubmit}>
           <p>
             <label className="label-caps">
-              E-Mail
+              Name
               <br />
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 required
+                autoFocus
                 style={{ width: "100%", marginTop: 6 }}
               />
             </label>

@@ -12,11 +12,11 @@ Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme werden digitalisiert:
 
 ## 3. Tech-Stack (konsistent mit bestehenden Projekten: Polaris, SwapBid, Daily Nest Plans)
 - **Frontend**: React + Vite + TypeScript, PWA (installierbar, offline-fähiger Grundshell)
-- **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für den ICS-Feed)
+- **Backend**: Supabase (Postgres, Auth, Row Level Security, Edge Functions für ICS-Feed und Erstpasswort-Vergabe)
 - **Paketierung**: Home Assistant Add-on (Docker-Container, `config.yaml`, Ingress), analog zu DNSHome-Updater / mg2abrp-Addon-Struktur
 
 ## 4. Kernmodule
-1. **Auth & Mitarbeiterverwaltung** (Supabase Auth, Rollen: `admin`, `employee`)
+1. **Auth & Mitarbeiterverwaltung** (Login wie bei Wizzo: Name + eigenes Passwort in normalen Textfeldern, keine E-Mail; Rollen: `admin`, `employee`)
 2. **Verfügbarkeiten** (dauerhaft wiederkehrend + Ausnahmen je Datum, monatlicher Einreichungs-Stichtag)
 3. **Schichtplanung** (Admin erstellt Plan auf Basis der Verfügbarkeiten, Veröffentlichung)
 4. **Kuchenplanung** (Backliste pro Tag, Mengen, Zuordnung zu einer Back-Truppe)
@@ -28,7 +28,7 @@ Café „Ella" — Kaffee & Kuchen. Zwei Planungsprobleme werden digitalisiert:
 ## 5. Rahmendaten
 Alle drei sind inzwischen admin-einstellbar (Details in §8), mit diesen Startwerten:
 - Café-Öffnungszeiten (Theke/Service): standardmäßig **Donnerstag–Sonntag**.
-- Backen: standardmäßig **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten** — Backen und Service überlappen sich nie am selben Tag in der Zeit, aber das System erzwingt das aktuell nicht automatisch (offene Frage, §13).
+- Backen: standardmäßig **Mittwoch, Donnerstag, Freitag**, ausschließlich **außerhalb der Öffnungszeiten** — Backen und Service überlappen sich nie am selben Tag in der Zeit, aber das System erzwingt das aktuell nicht automatisch (offene Frage, §14).
 - Back-Truppen: standardmäßig **3** (Seed-Daten), Anzahl ergibt sich aus den Zeilen in `bake_teams`, nicht mehr aus einer fixen Annahme.
 - Nur die **Frühschicht** unterscheidet Küche/Service; die **Spätschicht** kennt diese Aufteilung nicht.
 
@@ -73,8 +73,9 @@ staffing_requirements                     -- Personalbedarf fürs Admin-UI
   role_tag (nullable, nur für 'frueh'),
   required_count
 
-cake_items
-  id, name, default_unit ('stück'|'blech'|...), recipe_note
+cake_items                                -- Kuchen-Stammdaten, nur vom Admin gepflegt
+  id, name, default_unit ('stück'|'blech'|...),
+  ingredients (Zutaten, Freitext), recipe_note (Backanleitung, Freitext)
 
 bake_plan_entries                         -- Backplan, außerhalb Öffnungszeiten
   id, date, cake_item_id, quantity,
@@ -135,32 +136,62 @@ Eine globale, admin-editierbare Konfiguration, in der Admin-Planung unter „Ein
 - **Profil** (`/profil`): editierbarer Anzeigename (`update_my_name`), die Stichtag-/Einreichen-Karte, dauerhafte Verfügbarkeiten je Wochentag, Ausnahmen je Einzeldatum. Welche Wochentage für das Einreichen vollständig sein müssen, ergibt sich dynamisch aus `relevantDays` (§8) statt fest Mi–So zu sein.
 
 ## 10. Admin-Ansicht: Planung / Team
-- **Planung** (`/admin/planung`): Einstellungen (§8), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
+- **Planung** (`/admin/planung`): Einstellungen (§8), **Kuchen-Stammdaten** (Name, Einheit, Zutaten, Backanleitung — CRUD, nur hier gepflegte Kuchen stehen im Backplan weiter unten als Auswahl zur Verfügung, kein Freitext), Verfügbarkeits-Stichtag + Einreichungsstatus je Mitarbeiter für den kommenden Monat, "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" (zeigt `plan_audit_log`-Einträge des angezeigten Monats — nachträgliche Änderungen an bereits veröffentlichten Schichten/Backeinträgen), Monatsnavigation mit Dienst- und Backplan für den **gesamten angezeigten Kalendermonat** (alle Tage, die laut `service_days`/`bake_days` gerade als Service- bzw. Back-Tag gelten), Zuweisung von Mitarbeitern inkl. Verfügbarkeits-Hinweis. Jeder Backeintrag ohne Truppe zeigt einen Hinweis, ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus. Ein Veröffentlichen-Button je Monat: sind Backeinträge ohne Truppe offen, erscheint zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen; beim Veröffentlichen gehen Benachrichtigungen an alle betroffenen Mitarbeiter.
 - **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar).
 
 ## 11. Monatlicher Verfügbarkeits-Stichtag
 `availability_deadlines` (ein Stichtag pro Monat) + `availability_submissions` (ein Eintrag pro Mitarbeiter+Monat, sobald eingereicht). Einreichen ist erst möglich, wenn für alle relevanten Wochentage (§8/§9) ein wiederkehrender Verfügbarkeits-Eintrag existiert. Admin sieht den Einreichungsstatus aller Mitarbeiter vor dem Stichtag in der Planungsansicht.
 
-## 12. Kalender-Export (ICS)
+## 12. Login mit Name + Passwort, ohne E-Mail (wie bei Wizzo)
+Login-Bildschirm ist ein normales Formular mit zwei Textfeldern, Name und Passwort — kein
+E-Mail-Feld. Der eingetippte Name wird gegen `list_login_names()` aufgelöst (security-definer
+Funktion, vor dem Login aufrufbar, liefert je aktivem Mitarbeiter `id`, `name`, `has_account`).
+Erster Login (`has_account = false`): Passwort wird beim Absenden gleich mit festgelegt, die
+Edge Function `set-password` legt dafür per Service-Role-Key das
+Auth-Konto an (`admin.createUser`, verknüpft `employees.auth_user_id`) — mit einer aus der
+`employee.id` abgeleiteten, nie versendeten Adresse anstelle einer echten E-Mail, da Supabase
+Auth ein E-Mail-Feld erwartet. Jeder spätere Login läuft ganz regulär über
+`supabase.auth.signInWithPassword()` mit derselben Adresse, ohne weiteren Edge-Function-Umweg.
+Ein bereits vergebenes Passwort kann darüber nicht überschrieben werden (`set-password` lehnt
+ab, wenn `auth_user_id` schon gesetzt ist) — ein Passwort-Reset ist aktuell nur direkt in
+Supabase möglich, siehe §14.
+
+## 13. Kalender-Export (ICS)
 Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
 
-## 13. Offene Architekturfragen (für die nächste Iteration)
+## 14. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
 - **Benachrichtigungen ohne externen Kanal**: `notifications_log` wird jetzt befüllt und in der App angezeigt, aber es gibt noch keinen echten Push (HA-Notify/Web-Push) außerhalb der App — nur die Glocke beim nächsten App-Öffnen/Poll (60s).
 - **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
 - **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.
+- **Kein Passwort-Reset im Admin-UI**: Vergisst ein Mitarbeiter sein Passwort, hilft aktuell nur ein manueller Eingriff direkt in Supabase (Auth-User löschen, `employees.auth_user_id` auf `null` setzen, danach kann der Name erneut ein Erstpasswort festlegen) — ein Admin-Button dafür ist eine naheliegende nächste Iteration.
 - Mehrere Cafés/Standorte: aktuell bewusst single-tenant angenommen.
 
-## 14. Addon-Grundgerüst
+## 15. Addon-Grundgerüst
 ```
 ella/
   config.yaml
+  build.yaml           # Basis-Image je Architektur (Multi-Arch-Build)
   Dockerfile
   run.sh
   rootfs/...
   app/                 # React/Vite PWA build
-  supabase/
-    migrations/
-    functions/
+supabase/
+  migrations/
+  functions/
 ```
+
+## 16. CI: Image-Build & Veröffentlichung
+`.github/workflows/build-addon.yaml` baut bei Push auf `main` (Pfad `ella/**`) die
+Multi-Arch-Images (aarch64, amd64, armv7) über die offiziellen `home-assistant/builder`-
+Actions und veröffentlicht sie unter der in `config.yaml` hinterlegten `image`-Adresse
+(`ghcr.io/gianlucako95/addon-ella`) auf GHCR — der Supervisor zieht dieses Image dann fertig
+gebaut, statt es beim Installieren lokal auf dem HA-Host zu bauen. Ohne diesen Workflow (oder
+ohne `image` in `config.yaml`) funktioniert die Installation als lokales Add-on trotzdem, der
+Supervisor baut dann selbst aus dem Dockerfile.
+
+Zwei manuelle Schritte bleiben nötig: das GHCR-Package muss nach dem ersten erfolgreichen Lauf
+einmalig auf "Public" gestellt werden (sonst kann der Supervisor es nicht ziehen), und
+`version` in `config.yaml` muss bei jedem Release erhöht werden — der Workflow taggt exakt mit
+diesem Wert, ohne Änderung erkennt der Supervisor kein Update.

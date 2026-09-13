@@ -34,6 +34,52 @@ export type Employee = {
   bake_team_id: string | null;
 };
 
+export type LoginName = { id: string; name: string; has_account: boolean };
+
+// Namensliste, dient dem Login-Bildschirm dazu, den eingetippten Namen auf
+// eine employee-id + has_account aufzulösen (kein E-Mail-Feld, stattdessen
+// Name + Passwort). Läuft vor dem Login, daher über eine security-definer
+// Funktion statt über eine RLS-Policy auf die volle employees-Tabelle.
+export async function fetchLoginNames(): Promise<LoginName[]> {
+  const { data, error } = await supabase.rpc("list_login_names");
+  if (error) return [];
+  return (data as LoginName[]) || [];
+}
+
+export function findLoginName(names: LoginName[], typedName: string): LoginName | null {
+  const needle = typedName.trim().toLowerCase();
+  return names.find((n) => n.name.trim().toLowerCase() === needle) || null;
+}
+
+// Synthetische, nie versendete Adresse – ersetzt den "Benutzernamen" für
+// Supabase Auth, das ein E-Mail-Feld erwartet. Muss mit der Edge Function
+// set-password übereinstimmen.
+function loginEmail(employeeId: string): string {
+  return `${employeeId}@login.ella.internal`;
+}
+
+// Erster Login: legt per Edge Function (Service-Role, da admin.createUser
+// nötig ist) das Konto mit dem selbst gewählten Passwort an.
+export async function setInitialPassword(employeeId: string, password: string): Promise<string | null> {
+  const { data, error } = await supabase.functions.invoke("set-password", {
+    body: { employeeId, password }
+  });
+  if (error || !data?.ok) {
+    return (data as { error?: string })?.error || error?.message || "Passwort konnte nicht gesetzt werden";
+  }
+  return null;
+}
+
+// Normale Anmeldung mit Name (-> employeeId) + Passwort, ganz regulär über
+// Supabase Auth (kein Edge-Function-Umweg nötig).
+export async function signInWithName(employeeId: string, password: string): Promise<string | null> {
+  const { error } = await supabase.auth.signInWithPassword({
+    email: loginEmail(employeeId),
+    password
+  });
+  return error ? "Falscher Name oder falsches Passwort" : null;
+}
+
 export async function fetchCurrentEmployee(): Promise<Employee | null> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) return null;
