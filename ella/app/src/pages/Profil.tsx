@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchAppSettings, removeMyAvatar, supabase, uploadMyAvatar, type Employee } from "../lib/supabase";
-import { DAY_NAMES, MONTH_NAMES, RELEVANT_DAYS, relevantDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import {
+  DAY_NAMES,
+  MONTH_NAMES,
+  RELEVANT_DAYS,
+  relevantDays,
+  nextMonthStart,
+  monthLabel,
+  monthDaysMatching,
+  isoDayOfWeek,
+  toDateStr,
+  formatDayMonth,
+  toMonthStr
+} from "../lib/dates";
 import { Avatar } from "../components/Avatar";
 
 const DAYS = DAY_NAMES;
@@ -111,32 +123,30 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
     }
   }
 
-  const recurring = DAYS.map((_, idx) =>
-    entries.find((e) => e.kind === "recurring" && e.day_of_week === idx)
-  );
+  // Direkte Tagesauswahl statt wiederkehrender Wochentags-Regel + Ausnahmen
+  // (Feedback: "jeden Freitag anlegen und dann Ausnahmen auswählen" war viel
+  // zu umständig) — für den einreichbaren Monat wird für jeden relevanten
+  // Tag einzeln kann/kann nicht gesetzt, jeweils als 'one_time'-Eintrag auf
+  // das genaue Datum. is_colleague_available/availabilityFor lesen 'one_time'
+  // ohnehin vorrangig vor 'recurring', hier also keine Backend-Änderung nötig.
+  const relevantDates = monthDaysMatching(nextMonth, requiredDays);
+  const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
+  const oneTimeByDate = new Map(oneTimeEntries.map((e) => [e.specific_date as string, e]));
+  const relevantDateStrs = new Set(relevantDates.map(toDateStr));
+  const extraEntries = oneTimeEntries.filter((e) => !relevantDateStrs.has(e.specific_date as string));
 
-  async function setRecurring(dayIndex: number, available: boolean) {
-    const existing = recurring[dayIndex];
+  async function setDayAvailability(dateStr: string, available: boolean) {
+    const existing = oneTimeByDate.get(dateStr);
     if (existing) {
       await supabase.from("availability_entries").update({ available }).eq("id", existing.id);
     } else {
       await supabase.from("availability_entries").insert({
         employee_id: employee.id,
-        kind: "recurring",
-        day_of_week: dayIndex,
+        kind: "one_time",
+        specific_date: dateStr,
         available
       });
     }
-    load();
-  }
-
-  async function addOneTime() {
-    await supabase.from("availability_entries").insert({
-      employee_id: employee.id,
-      kind: "one_time",
-      specific_date: newDate,
-      available: newDateAvailable
-    });
     load();
   }
 
@@ -145,9 +155,8 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
     load();
   }
 
-  const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
-
-  const isComplete = requiredDays.every((dow) => recurring[dow] !== undefined);
+  const isComplete = relevantDates.every((d) => oneTimeByDate.has(toDateStr(d)));
+  const missingCount = relevantDates.filter((d) => !oneTimeByDate.has(toDateStr(d))).length;
   const isLate = deadline ? new Date() > new Date(deadline + "T23:59:59") : false;
 
   async function submitMonth() {
@@ -217,21 +226,12 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
         {submittedAt ? (
           <p>✅ Eingereicht am {new Date(submittedAt).toLocaleDateString("de-DE")}.</p>
         ) : (
-          <>
-            <p>
-              {isComplete
-                ? `Alle relevanten Tage (${requiredDays.map((d) => DAYS[d]).join(", ")}) sind unten eingetragen — bereit zum Einreichen.`
-                : `Bitte für alle Tage (${requiredDays.map((d) => DAYS[d]).join(", ")}) unten "kann"/"kann nicht" auswählen, bevor du einreichst.`}
-            </p>
-            <button onClick={submitMonth} disabled={!isComplete}>
-              Verfügbarkeit für {monthLabel(nextMonth)} einreichen
-            </button>
-          </>
+          <p>
+            {isComplete
+              ? "Für alle Tage unten ist \"kann\"/\"kann nicht\" eingetragen — bereit zum Einreichen."
+              : `Bitte für die ${missingCount} noch offenen Tage unten "kann"/"kann nicht" auswählen, bevor du einreichst.`}
+          </p>
         )}
-      </div>
-
-      <div className="card">
-        <h3>Dauerhafte Verfügbarkeiten</h3>
         {loading ? (
           <p>Lädt…</p>
         ) : (
@@ -243,18 +243,21 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
               </tr>
             </thead>
             <tbody>
-              {DAYS.map((day, idx) => {
-                const entry = recurring[idx];
+              {relevantDates.map((d) => {
+                const dateStr = toDateStr(d);
+                const entry = oneTimeByDate.get(dateStr);
                 const available = entry?.available ?? null;
                 return (
-                  <tr key={day}>
-                    <td>{day}</td>
+                  <tr key={dateStr}>
+                    <td>
+                      {DAYS[isoDayOfWeek(d)]}, {formatDayMonth(d)}
+                    </td>
                     <td>
                       <div className="segmented">
-                        <button className={available === true ? "on" : ""} onClick={() => setRecurring(idx, true)}>
+                        <button className={available === true ? "on" : ""} onClick={() => setDayAvailability(dateStr, true)}>
                           kann
                         </button>
-                        <button className={available === false ? "off-on" : ""} onClick={() => setRecurring(idx, false)}>
+                        <button className={available === false ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, false)}>
                           kann nicht
                         </button>
                       </div>
@@ -265,10 +268,19 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             </tbody>
           </table>
         )}
+        {!submittedAt && (
+          <button onClick={submitMonth} disabled={!isComplete} style={{ marginTop: "0.8rem" }}>
+            Verfügbarkeit für {monthLabel(nextMonth)} einreichen
+          </button>
+        )}
       </div>
 
       <div className="card">
-        <h3>Ausnahmen</h3>
+        <h3>Weitere Termine</h3>
+        <p style={{ fontSize: "0.8rem", color: "var(--ink-soft)", marginTop: 0 }}>
+          Für Tage außerhalb der normalen Öffnungs-/Backtage oben, z. B. eine spontane
+          Frühschicht-Ausnahme.
+        </p>
         <p className="row-actions" style={{ flexWrap: "wrap" }}>
           <select value={pickDay} onChange={(e) => setPickDay(Number(e.target.value))}>
             {Array.from({ length: maxDay }, (_, i) => i + 1).map((d) => (
@@ -298,10 +310,10 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             <option value="yes">kann</option>
             <option value="no">kann nicht</option>
           </select>{" "}
-          <button className="ghost" onClick={addOneTime}>Hinzufügen</button>
+          <button className="ghost" onClick={() => setDayAvailability(newDate, newDateAvailable)}>Hinzufügen</button>
         </p>
         <ul style={{ listStyle: "none", padding: 0 }}>
-          {oneTimeEntries.map((e) => (
+          {extraEntries.map((e) => (
             <li
               key={e.id}
               style={{
