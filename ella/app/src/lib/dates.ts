@@ -33,15 +33,9 @@ export function monthDaysMatching(monthStart: Date, allowedDays: number[]): Date
 
 export const DAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 
-// Fallback, falls app_settings noch nicht geladen sind (Mi–So, Default-Konfiguration).
-export const RELEVANT_DAYS = [2, 3, 4, 5, 6];
-
-// Wochentage, für die ein Mitarbeiter vor dem Einreichen eine wiederkehrende
-// Verfügbarkeit braucht: Vereinigung aus den admin-einstellbaren Service- und
-// Back-Tagen (0=Mo..6=So), statt fest Mi–So anzunehmen.
-export function relevantDays(serviceDays: number[], bakeDays: number[]): number[] {
-  return Array.from(new Set([...serviceDays, ...bakeDays])).sort((a, b) => a - b);
-}
+// Fallback, falls app_settings noch nicht geladen sind (Do–So, Default-Konfiguration
+// von service_days).
+export const RELEVANT_DAYS = [3, 4, 5, 6];
 
 export const MONTH_NAMES = [
   "Januar", "Februar", "März", "April", "Mai", "Juni",

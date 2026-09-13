@@ -4,7 +4,6 @@ import {
   DAY_NAMES,
   MONTH_NAMES,
   RELEVANT_DAYS,
-  relevantDays,
   nextMonthStart,
   monthLabel,
   monthDaysMatching,
@@ -59,8 +58,12 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
 
+  // Nur Tage, an denen das Café geöffnet ist (service_days) — nicht die
+  // Back-Tage: Backeinträge werden per Truppe zugewiesen (AdminPlanning),
+  // nicht anhand individueller Verfügbarkeit, daher wird dafür auch keine
+  // eingetragen.
   useEffect(() => {
-    fetchAppSettings().then((s) => setRequiredDays(relevantDays(s.service_days, s.bake_days)));
+    fetchAppSettings().then((s) => setRequiredDays(s.service_days));
   }, []);
 
   async function load() {
@@ -278,7 +281,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
       <div className="card">
         <h3>Weitere Termine</h3>
         <p style={{ fontSize: "0.8rem", color: "var(--ink-soft)", marginTop: 0 }}>
-          Für Tage außerhalb der normalen Öffnungs-/Backtage oben, z. B. eine spontane
+          Für Tage außerhalb der normalen Öffnungstage oben, z. B. eine spontane
           Frühschicht-Ausnahme.
         </p>
         <p className="row-actions" style={{ flexWrap: "wrap" }}>
