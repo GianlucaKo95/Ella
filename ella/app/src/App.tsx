@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { supabase, fetchCurrentEmployee, type Employee } from "./lib/supabase";
 import { NotificationBell } from "./components/NotificationBell";
 import { NavBar } from "./components/NavBar";
@@ -11,6 +11,17 @@ import { Kalender } from "./pages/Kalender";
 import { Profil } from "./pages/Profil";
 import { AdminPlanning } from "./pages/AdminPlanning";
 import { AdminEmployees } from "./pages/AdminEmployees";
+
+// React Router scrollt beim Wechsel der Seite (Navbar-Tabs) nicht von selbst
+// nach oben — ohne das bleibt man z. B. nach dem Wechsel von einer lang
+// gescrollten Kalenderansicht mittendrin auf der neuen Seite stehen.
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 export default function App() {
   const [employee, setEmployee] = useState<Employee | null | undefined>(undefined);
@@ -40,6 +51,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <div className="app-shell">
         <div className="brand-header">
           <div className="brand-left">
