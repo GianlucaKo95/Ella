@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import type { Employee } from "../lib/supabase";
-import { IconHome, IconCalendar, IconUser, IconSliders, IconUsers } from "./icons";
+import { IconHome, IconCalendar, IconUser, IconSliders, IconUsers, IconCake } from "./icons";
 
 export function NavBar({ employee }: { employee: Employee }) {
   return (
@@ -17,6 +17,12 @@ export function NavBar({ employee }: { employee: Employee }) {
         <IconUser />
         Profil
       </NavLink>
+      {employee.bake_team_id && (
+        <NavLink to="/backen" className={({ isActive }) => (isActive ? "active" : "")}>
+          <IconCake />
+          Backen
+        </NavLink>
+      )}
       {employee.role === "admin" && (
         <>
           <NavLink to="/admin/planung" className={({ isActive }) => (isActive ? "active" : "")}>

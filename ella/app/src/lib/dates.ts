@@ -4,8 +4,16 @@ export function isoDayOfWeek(date: Date): number {
   return (jsDay + 6) % 7; // 0=Mo .. 6=So
 }
 
+// Bewusst nicht `date.toISOString().slice(0, 10)`: das konvertiert ein
+// lokales Datum über UTC, was es in jeder Zeitzone mit positivem UTC-Offset
+// (z. B. Deutschland, UTC+1/+2) einen Tag zurückfallen lassen kann — lokale
+// Mitternacht liegt dort noch im UTC-Vortag. Stattdessen direkt aus den
+// lokalen Datumsteilen zusammensetzen.
 export function toDateStr(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 // Kehrt toDateStr um ("YYYY-MM-DD" -> lokales Datum) — bewusst nicht
