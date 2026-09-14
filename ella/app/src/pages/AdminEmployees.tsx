@@ -105,7 +105,7 @@ export function AdminEmployees({ currentEmployeeId }: { currentEmployeeId: strin
         <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" />{" "}
         <button onClick={addEmployee}>+ Mitarbeiter anlegen</button>
       </div>
-      <table>
+      <table className="stack">
         <thead>
           <tr>
             <th>Name</th>
@@ -119,21 +119,21 @@ export function AdminEmployees({ currentEmployeeId }: { currentEmployeeId: strin
         <tbody>
           {employees.map((e) => (
             <tr key={e.id}>
-              <td>{e.name}</td>
-              <td>
+              <td data-label="Name">{e.name}</td>
+              <td data-label="Rolle">
                 <select value={e.role} onChange={(ev) => updateEmployee(e.id, { role: ev.target.value as any })}>
                   <option value="employee">Mitarbeiter</option>
                   <option value="admin">Admin</option>
                 </select>
               </td>
-              <td>
+              <td data-label="Aktiv">
                 <input
                   type="checkbox"
                   checked={e.active}
                   onChange={(ev) => updateEmployee(e.id, { active: ev.target.checked })}
                 />
               </td>
-              <td>
+              <td data-label="Back-Truppe">
                 <select
                   value={e.bake_team_id ?? ""}
                   onChange={(ev) => updateEmployee(e.id, { bake_team_id: ev.target.value || null })}
@@ -146,7 +146,7 @@ export function AdminEmployees({ currentEmployeeId }: { currentEmployeeId: strin
                   ))}
                 </select>
               </td>
-              <td>
+              <td data-label="Login">
                 {e.auth_user_id ? (
                   <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => resetPassword(e)}>
                     Passwort zurücksetzen
@@ -162,7 +162,7 @@ export function AdminEmployees({ currentEmployeeId }: { currentEmployeeId: strin
                   </span>
                 )}
               </td>
-              <td>
+              <td data-label="">
                 {e.id !== currentEmployeeId && (
                   <button
                     className="ghost"

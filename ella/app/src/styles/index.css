@@ -24,8 +24,15 @@
 
 * { box-sizing: border-box; }
 
-html, body { background: var(--bg); color: var(--ink); }
-body { margin: 0; }
+/* Reine Handy-Nutzung (Home-Assistant-Companion-App, kein Desktop-Case) —
+   kein Element darf die Seite je zum horizontalen Scrollen zwingen. Einzelne
+   zu breite Inhalte (z. B. eine sehr lange Kuchen-Zutat) werden umgebrochen
+   statt die Seite zu sprengen; echte Datentabellen bekommen stattdessen das
+   .stack-Muster unten, das sie auf schmalen Screens in Zeilen auflöst. */
+html, body { background: var(--bg); color: var(--ink); overflow-x: hidden; }
+body { margin: 0; max-width: 100vw; }
+img, svg { max-width: 100%; }
+select, input, textarea { max-width: 100%; }
 
 h1, h2, h3, h4 {
   font-family: "Baloo 2", "Mulish", system-ui, sans-serif;
@@ -142,7 +149,7 @@ h1, h2, h3, h4 {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 300px;
+  width: min(300px, calc(100vw - 2.4rem));
   max-height: 360px;
   overflow-y: auto;
   background: var(--surface);
@@ -253,6 +260,60 @@ th {
   letter-spacing: 0.05em;
 }
 tr:last-child td { border-bottom: none; }
+
+/* Datentabellen mit mehreren Spalten + Formularelementen (Schichtzuweisung,
+   Backplan, Mitarbeiterverwaltung) passen auf Handy-Breite nicht nebeneinander
+   — statt sie horizontal scrollen zu lassen, lösen sich Tabellen mit dieser
+   Klasse auf schmalen Screens in einzelne, gerahmte Zeilen auf (jede Zelle
+   zeigt ihre Spaltenbeschriftung über `data-label`). Auf breiteren Screens
+   (Tablet/Desktop) bleibt die normale Tabellenform erhalten. */
+@media (max-width: 700px) {
+  table.stack thead { display: none; }
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: 100%; }
+  table.stack tr {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 0.6rem;
+  }
+  table.stack td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.35rem 0;
+    border-bottom: none;
+  }
+  table.stack td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    font-weight: 700;
+    font-size: 0.64rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  table.stack td > select,
+  table.stack td > input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* Verfügbarkeits-Zeilen (Profil, ohne Tabelle: eine sehr breite Segmented-
+   Auswahl mit bis zu 4 Optionen an Frühschicht-Tagen soll auf schmalen
+   Screens einfach in die nächste Zeile umbrechen statt die Seite zu sprengen). */
+.avail-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.avail-row:last-child { border-bottom: none; }
+.avail-row-day { font-size: 0.88rem; }
 
 /* ---- Formularelemente ---- */
 input, select, textarea {

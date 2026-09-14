@@ -310,70 +310,60 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
         {loading ? (
           <p>Lädt…</p>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Tag</th>
-                <th>Verfügbar?</th>
-              </tr>
-            </thead>
-            <tbody>
-              {relevantDates.map((d) => {
-                const dateStr = toDateStr(d);
-                const choice = choiceFor(oneTimeByDate.get(dateStr));
-                const specialDay = specialByDate.get(dateStr);
-                const hasFrueh = fruehDays.includes(isoDayOfWeek(d)) || specialDay?.frueh_exception === true;
-                const locked = publishedDates.has(dateStr);
-                return (
-                  <tr key={dateStr}>
-                    <td>
-                      {DAYS[isoDayOfWeek(d)]}, {formatDayMonth(d)}
-                      {specialDay && (
-                        <span style={{ display: "block", color: "var(--ink-soft)", fontSize: "0.72rem" }}>
-                          {specialDay.label}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      {locked ? (
-                        <span className="hint" title="Dienstplan für diesen Tag bereits erstellt">
-                          🔒 {choiceLabel(choice)}
-                        </span>
+          <div>
+            {relevantDates.map((d) => {
+              const dateStr = toDateStr(d);
+              const choice = choiceFor(oneTimeByDate.get(dateStr));
+              const specialDay = specialByDate.get(dateStr);
+              const hasFrueh = fruehDays.includes(isoDayOfWeek(d)) || specialDay?.frueh_exception === true;
+              const locked = publishedDates.has(dateStr);
+              return (
+                <div className="avail-row" key={dateStr}>
+                  <span className="avail-row-day">
+                    {DAYS[isoDayOfWeek(d)]}, {formatDayMonth(d)}
+                    {specialDay && (
+                      <span style={{ display: "block", color: "var(--ink-soft)", fontSize: "0.72rem" }}>
+                        {specialDay.label}
+                      </span>
+                    )}
+                  </span>
+                  {locked ? (
+                    <span className="hint" title="Dienstplan für diesen Tag bereits erstellt">
+                      🔒 {choiceLabel(choice)}
+                    </span>
+                  ) : (
+                    <div className="segmented">
+                      {hasFrueh ? (
+                        <>
+                          <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
+                            kann nicht
+                          </button>
+                          <button className={choice === "frueh" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "frueh")}>
+                            Früh
+                          </button>
+                          <button className={choice === "spaet" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "spaet")}>
+                            Spät
+                          </button>
+                          <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
+                            ganztags
+                          </button>
+                        </>
                       ) : (
-                        <div className="segmented">
-                          {hasFrueh ? (
-                            <>
-                              <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
-                                kann nicht
-                              </button>
-                              <button className={choice === "frueh" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "frueh")}>
-                                Früh
-                              </button>
-                              <button className={choice === "spaet" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "spaet")}>
-                                Spät
-                              </button>
-                              <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
-                                ganztags
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
-                                kann
-                              </button>
-                              <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
-                                kann nicht
-                              </button>
-                            </>
-                          )}
-                        </div>
+                        <>
+                          <button className={choice === "full" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "full")}>
+                            kann
+                          </button>
+                          <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
+                            kann nicht
+                          </button>
+                        </>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
         {!submittedAt && (
           <button onClick={submitMonth} disabled={!isComplete} style={{ marginTop: "0.8rem" }}>

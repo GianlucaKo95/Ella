@@ -653,7 +653,7 @@ export function AdminPlanning() {
                       .join(", ")}
                   </p>
                 )}
-                <table>
+                <table className="stack">
                   <thead>
                     <tr>
                       <th>Schicht</th>
@@ -666,12 +666,12 @@ export function AdminPlanning() {
                   <tbody>
                     {dayShifts.map((s) => (
                       <tr key={s.id}>
-                        <td>{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
-                        <td>{s.role_tag ?? "—"}</td>
-                        <td>
+                        <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
+                        <td data-label="Rolle">{s.role_tag ?? "—"}</td>
+                        <td data-label="Zeit">
                           {s.start_time}–{s.end_time}
                         </td>
-                        <td>
+                        <td data-label="Mitarbeiter">
                           <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
                             <option value="">– wählen –</option>
                             {employees.map((emp) => (
@@ -681,7 +681,7 @@ export function AdminPlanning() {
                             ))}
                           </select>
                         </td>
-                        <td>
+                        <td data-label="">
                           <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
                         </td>
                       </tr>
@@ -774,7 +774,7 @@ export function AdminPlanning() {
                 <h4>
                   {DAY_NAMES[dow]}, {dateStr}
                 </h4>
-                <table>
+                <table className="stack">
                   <thead>
                     <tr>
                       <th>Kuchen</th>
@@ -788,7 +788,7 @@ export function AdminPlanning() {
                       const collisions = collisionsFor(dateStr, b.bake_team_id);
                       return (
                         <tr key={b.id}>
-                          <td>
+                          <td data-label="Kuchen">
                             <select
                               value={b.cake_item_id}
                               onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
@@ -800,7 +800,7 @@ export function AdminPlanning() {
                               ))}
                             </select>
                           </td>
-                          <td>
+                          <td data-label="Menge">
                             <input
                               type="number"
                               value={b.quantity}
@@ -809,7 +809,7 @@ export function AdminPlanning() {
                               onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
                             />
                           </td>
-                          <td>
+                          <td data-label="Truppe">
                             <select
                               value={b.bake_team_id ?? ""}
                               onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
@@ -828,7 +828,7 @@ export function AdminPlanning() {
                               </p>
                             )}
                           </td>
-                          <td>
+                          <td data-label="">
                             <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
                           </td>
                         </tr>
