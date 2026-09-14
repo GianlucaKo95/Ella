@@ -106,10 +106,15 @@ app_settings                              -- Singleton (genau 1 Zeile, id=true)
   bake_days   (smallint[], 0=Mo..6=So, nicht leer, Default {2,3,4}),
   frueh_days (smallint[], 0=Mo..6=So, leer erlaubt, Default {5,6}) -- steuert nur die UI, siehe §8
 
-notifications_log                         -- In-App-Benachrichtigungen (Glocke)
-  id, type ('shift_published'|'bake_plan_published'|'announcement'),
+notifications_log                         -- In-App-Benachrichtigungen (Glocke) + Web-Push-Protokoll
+  id, type ('shift_published'|'bake_plan_published'|'announcement'|
+            'swap_accepted'|'availability_submitted'|'reminder'),
   target_employee_id, body, read_at (nullable),
-  sent_at, channel ('ha_notify'|'web_push')   -- Kanal vorbereitet für später, aktuell nur in-app angezeigt
+  sent_at, channel ('ha_notify'|'web_push')   -- 'ha_notify' bleibt ungenutzt, siehe §7a
+
+push_subscriptions                        -- Web-Push-Abos, siehe §7a
+  id, employee_id, endpoint (eindeutig, 1 Zeile je Browser/Gerät),
+  p256dh, auth (Push-Verschlüsselung), created_at
 
 shift_swap_requests                       -- Schichttausch
   id, shift_id (-> shifts),
@@ -136,6 +141,65 @@ RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte 
 `service_days`/`bake_days` sind laufzeit-konfigurierbar, ein reiner `CHECK`-Constraint kann aber nicht gegen eine andere Tabelle prüfen. Deshalb validieren zwei `BEFORE INSERT/UPDATE OF date`-Trigger-Funktionen (`check_shift_service_day` auf `shifts`, `check_bake_plan_day` auf `bake_plan_entries`) jedes neue/geänderte Datum gegen die aktuellen `app_settings`-Werte und lehnen mit einer Exception ab, wenn der Wochentag nicht erlaubt ist. Das ersetzt die ursprünglichen festen `isodow`-Checks (Migration 0001) vollständig (Migration 0006).
 
 **Nachtrag (Migration 0019, Migrations-Drift behoben)**: Die beiden Trigger waren in der laufenden Datenbank tatsächlich nie angehängt — die Funktionen existierten, aber ohne `CREATE TRIGGER` dazu, sodass serverseitig überhaupt keine Tages-Validierung mehr griff (nur noch die freiwillige Client-Prüfung in AdminPlanning). Migration 0019 hängt beide Trigger nach (`drop trigger if exists` + `create trigger`, idempotent). Dabei wurde `check_shift_service_day` zusätzlich um eine Sondertage-Ausnahme ergänzt: liegt für `NEW.date` ein `special_days`-Eintrag mit `service_exception = true` vor (§10), gibt die Funktion sofort `NEW` zurück, bevor sie gegen `service_days` prüft — sonst hätte das Nachrüsten des Triggers das Anlegen von Schichten an admin-deklarierten Zusatzterminen (Migration 0016) wieder unterbunden.
+
+## 7a. Echte Push-Benachrichtigungen (Web Push, Migration 0021)
+Löst den in §14 (alte Fassung) offenen Punkt "kein echter Push" ein: neben dem
+In-App-Eintrag in `notifications_log` (Glocke, 60s-Poll) verschickt die App
+jetzt zusätzlich eine echte, VAPID-signierte Web-Push-Nachricht, die auch bei
+geschlossener App/Tab als System-Benachrichtigung ankommt (Voraussetzung:
+HTTPS und ein Browser mit Push-API-Unterstützung — bei Nutzung über die
+Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
+
+- **Abo** (`lib/push.ts`, `push_subscriptions`): pro Browser/Gerät ein Eintrag
+  (`endpoint` eindeutig), angelegt über `enablePush(employeeId)` — fragt die
+  Standard-Browser-Erlaubnis an und registriert das Abo beim Push-Dienst des
+  Browsers (`PushManager.subscribe`) mit dem öffentlichen VAPID-Schlüssel.
+  RLS: jede:r verwaltet ausschließlich das eigene Abo
+  (`employee_id = current_employee_id()`).
+- **Service Worker** (`src/sw.ts`): vite-plugin-pwa läuft dafür nicht mehr im
+  Standard-Modus (`generateSW`, kein eigener Code möglich), sondern als
+  `injectManifest` mit eigenem SW-Quelltext — der fügt `push`- und
+  `notificationclick`-Handler hinzu (zeigt die System-Benachrichtigung,
+  öffnet/fokussiert beim Antippen die App) und ruft `precacheAndRoute`
+  weiterhin selbst auf. Von `tsc -b` bewusst ausgeschlossen
+  (`tsconfig.json`), da WebWorker- und DOM-Typen sich in einem gemeinsamen
+  Compile-Lauf nicht vertragen; vite/esbuild bauen die Datei unabhängig davon.
+  `self.skipWaiting()` + `clients.claim()` sorgen dabei gleich mit dafür, dass
+  eine neu deployte Version offene Tabs sofort übernimmt, statt (Standard-SW-
+  Verhalten) bis zum manuellen Neustart der App zu warten — `main.tsx`
+  registriert den Worker entsprechend selbst über `virtual:pwa-register`
+  (`registerSW({ immediate: true })`) statt über das vorher injizierte
+  Standard-Skript.
+- **Versand — Edge Function `send-push`** (ersetzt den bisherigen direkten
+  Insert in `notifications_log` aus `notifyEmployees()`): schreibt weiterhin
+  die `notifications_log`-Zeile(n), verschickt zusätzlich die Web-Push-
+  Nachricht an jedes Abo der Ziel-Mitarbeiter (`npm:web-push`, VAPID-Secrets
+  `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`) und räumt bei einer
+  410/404-Antwort (Abo beim Push-Dienst nicht mehr gültig) die betroffene
+  `push_subscriptions`-Zeile gleich mit auf. Berechtigung je Typ:
+  - `swap_accepted`/`availability_submitted` (`notifyAdmins()`, von jeder
+    angemeldeten Person aus aufrufbar): Ziel sind serverseitig **immer** alle
+    aktiven Admins, die vom Client mitgeschickte Mitarbeiterliste wird
+    ignoriert — sonst könnte eine Mitarbeiter-Session darüber beliebige
+    andere Mitarbeiter anschreiben.
+  - `shift_published`/`bake_plan_published`/`announcement`/`reminder`
+    (`notifyEmployees()`): nur Admins, Ziel-Mitarbeiter kommen vom Client.
+  `verify_jwt` bewusst aus (`supabase/config.toml`, gleicher Grund wie bei
+  `reset-password`/`delete-employee`), Berechtigung wird im Code anhand des
+  mitgeschickten Bearer-Tokens geprüft.
+- **Auslöser**: `respondToSwap()` (Home.tsx) benachrichtigt die Admins erst
+  bei "angenommen" (nicht schon bei der ursprünglichen Anfrage) — erst dann
+  wartet der Tausch auf die finale Bestätigung durch einen Admin
+  (`Schichttausch-Bestätigungen`, §10). `submitMonth()` (Profil.tsx)
+  benachrichtigt die Admins direkt beim Einreichen. Admin-seitig gibt es in
+  den Einstellungen (§8) einen "Erinnerung senden"-Button direkt bei der
+  Verfügbarkeits-Stichtag-Übersicht, der an alle dort als "ausstehend"
+  markierten Mitarbeiter eine Erinnerung schickt.
+- **Setup-Voraussetzung**: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+  `VAPID_SUBJECT` müssen als Secrets der Edge Function `send-push` gesetzt
+  sein (Supabase-Dashboard oder `supabase secrets set`) — das kann nicht per
+  Migration/Deploy automatisiert werden, da der private Schlüssel nirgends im
+  Repo landen darf.
 
 ## 8. Admin-Einstellungen (`app_settings`)
 Eine globale, admin-editierbare Konfiguration, gebündelt im eigenen "Einstellungen"-Tab der
@@ -226,7 +290,8 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 
 ## 14. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
-- **Benachrichtigungen ohne externen Kanal**: `notifications_log` wird jetzt befüllt und in der App angezeigt, aber es gibt noch keinen echten Push (HA-Notify/Web-Push) außerhalb der App — nur die Glocke beim nächsten App-Öffnen/Poll (60s).
+- **Web Push nur für die zwei/drei neuen Ereignisse verdrahtet** (§7a): `shift_published`/`bake_plan_published`/`announcement` laufen technisch schon über dieselbe Edge Function und würden bei einem Abo genauso pushen — bisher hat sie nur niemand abonniert, da der "Push aktivieren"-Button aktuell nur in den Admin-Einstellungen sichtbar ist. Eine Ausweitung auf normale Mitarbeiter (eigener Button z. B. im Profil) wäre ohne weitere Backend-Änderung möglich.
+- **Kein Fallback ohne Push-API**: Ältere/eingebettete WebViews ohne `PushManager`-Unterstützung zeigen in den Einstellungen entsprechend "wird nicht unterstützt" und bleiben auf die In-App-Glocke (60s-Poll) beschränkt — es gibt aktuell keinen zweiten Kanal (z. B. `ha_notify` über die Supervisor-API) als Ersatz dafür.
 - **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
 - **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.

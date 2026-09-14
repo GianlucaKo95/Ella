@@ -80,7 +80,7 @@ export default function App() {
           {employee.bake_team_id && <Route path="/backen" element={<Backen employee={employee} />} />}
           {employee.role === "admin" && (
             <>
-              <Route path="/admin/planung" element={<AdminPlanning />} />
+              <Route path="/admin/planung" element={<AdminPlanning employee={employee} />} />
               <Route path="/admin/mitarbeiter" element={<AdminEmployees currentEmployeeId={employee.id} />} />
             </>
           )}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, notifyEmployees, type Employee } from "../lib/supabase";
+import { supabase, notifyEmployees, notifyAdmins, type Employee } from "../lib/supabase";
 import { toDateStr, addDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
 
 type ShiftRow = {
@@ -173,10 +173,20 @@ export function Home({ employee }: { employee: Employee }) {
   }
 
   async function respondToSwap(swapId: string, accept: boolean) {
+    const swap = incomingSwaps.find((s) => s.id === swapId);
     await supabase
       .from("shift_swap_requests")
       .update({ status: accept ? "accepted" : "declined", responded_at: new Date().toISOString() })
       .eq("id", swapId);
+    // Erst ab "angenommen" braucht der Admin tatsächlich etwas zu tun (finale
+    // Bestätigung, siehe "Schichttausch-Bestätigungen" in der Admin-Planung) —
+    // eine Ablehnung braucht keine Push, die sieht nur die anbietende Person selbst.
+    if (accept && swap) {
+      await notifyAdmins(
+        "swap_accepted",
+        `${employee.name} übernimmt die Schicht von ${swap.requested_by_employee?.name ?? "?"} (${swapLabel(swap)}) — wartet auf Bestätigung`
+      );
+    }
     load();
   }
 

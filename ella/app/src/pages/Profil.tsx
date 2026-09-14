@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchAppSettings, removeMyAvatar, supabase, uploadMyAvatar, type Employee } from "../lib/supabase";
+import { fetchAppSettings, notifyAdmins, removeMyAvatar, supabase, uploadMyAvatar, type Employee } from "../lib/supabase";
 import {
   DAY_NAMES,
   MONTH_NAMES,
@@ -235,6 +235,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
     await supabase
       .from("availability_submissions")
       .upsert({ employee_id: employee.id, month: nextMonthStr }, { onConflict: "employee_id,month" });
+    await notifyAdmins("availability_submitted", `${employee.name} hat die Verfügbarkeit für ${monthLabel(nextMonth)} eingereicht`);
     load();
   }
 

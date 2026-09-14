@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { fetchAppSettings, notifyEmployees, supabase } from "../lib/supabase";
+import { fetchAppSettings, notifyEmployees, supabase, type Employee } from "../lib/supabase";
+import { disablePush, enablePush, getPushState, isPushSupported, type PushState } from "../lib/push";
 import {
   monthDaysMatching,
   mergeUniqueDates,
@@ -115,7 +116,7 @@ function SettingsSection({ title, subtitle, children }: { title: string; subtitl
   );
 }
 
-export function AdminPlanning() {
+export function AdminPlanning({ employee }: { employee: Employee }) {
   const [tab, setTab] = useState<Tab>("schicht");
 
   // Beim Tab-Wechsel wieder nach oben springen, statt mitten in der neuen
@@ -173,6 +174,11 @@ export function AdminPlanning() {
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [pushState, setPushState] = useState<PushState | "loading">("loading");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [reminderSending, setReminderSending] = useState(false);
+  const [reminderSent, setReminderSent] = useState(false);
   const dayRulesDirty =
     serviceDays.join() !== savedServiceDays.join() ||
     bakeDays.join() !== savedBakeDays.join() ||
@@ -400,7 +406,37 @@ export function AdminPlanning() {
       setSavedFruehDays(s.frueh_days);
       setFruehDaysState(s.frueh_days);
     });
+    getPushState().then(setPushState);
   }, []);
+
+  async function togglePush() {
+    setPushBusy(true);
+    setPushError(null);
+    if (pushState === "subscribed") {
+      await disablePush();
+    } else {
+      const error = await enablePush(employee.id);
+      if (error) setPushError(error);
+    }
+    setPushState(await getPushState());
+    setPushBusy(false);
+  }
+
+  async function sendReminder() {
+    const missingIds = employees
+      .filter((e) => !submissions.some((s) => s.employee_id === e.id))
+      .map((e) => e.id);
+    if (missingIds.length === 0) return;
+    setReminderSending(true);
+    setReminderSent(false);
+    await notifyEmployees(
+      missingIds,
+      "reminder",
+      `Bitte gib deine Verfügbarkeit für ${monthLabel(nextMonth)} ab${deadline ? ` (Stichtag ${new Date(deadline).toLocaleDateString("de-DE")})` : ""}.`
+    );
+    setReminderSending(false);
+    setReminderSent(true);
+  }
 
   useEffect(() => {
     loadAll();
@@ -845,6 +881,41 @@ export function AdminPlanning() {
 
       {tab === "einstellungen" && (
         <>
+          <SettingsSection
+            title="Benachrichtigungen"
+            subtitle={
+              pushState === "subscribed"
+                ? "Push-Benachrichtigungen aktiv auf diesem Gerät"
+                : pushState === "unsupported"
+                ? "Von diesem Browser nicht unterstützt"
+                : pushState === "denied"
+                ? "Erlaubnis wurde verweigert"
+                : "Push-Benachrichtigungen nicht aktiviert"
+            }
+          >
+            <p className="hint" style={{ marginTop: 0 }}>
+              Aktiviert für dieses Gerät/diesen Browser eine echte Push-Benachrichtigung (auch außerhalb der App),
+              sobald ein angenommener Schichttausch auf Bestätigung wartet oder jemand seine Verfügbarkeit
+              eingereicht hat.
+            </p>
+            {pushState === "unsupported" && (
+              <p className="hint warn">Dieser Browser unterstützt keine Push-Benachrichtigungen.</p>
+            )}
+            {pushState === "denied" && (
+              <p className="hint warn">
+                Die Erlaubnis für Benachrichtigungen wurde verweigert — bitte in den Browser-/App-Einstellungen für
+                diese Seite erlauben und danach neu laden.
+              </p>
+            )}
+            {pushError && <p className="hint warn">{pushError}</p>}
+            <button
+              disabled={pushBusy || pushState === "unsupported" || pushState === "denied" || pushState === "loading"}
+              onClick={togglePush}
+            >
+              {pushState === "subscribed" ? "Push-Benachrichtigungen deaktivieren" : "Push-Benachrichtigungen aktivieren"}
+            </button>
+          </SettingsSection>
+
           <SettingsSection
             title="Abrechnungszeitraum"
             subtitle={`Beginnt am ${billingStartDay}. · aktuell ${formatDayMonth(previewPeriod.start)}–${formatDayMonth(previewPeriod.end)}`}
@@ -1311,6 +1382,24 @@ export function AdminPlanning() {
               <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />{" "}
               <button className="ghost" onClick={saveDeadline}>Stichtag speichern</button>
             </p>
+            {(() => {
+              const missing = employees.filter((e) => !submissions.some((s) => s.employee_id === e.id));
+              if (missing.length === 0) return null;
+              return (
+                <p>
+                  <button className="ghost" disabled={reminderSending} onClick={sendReminder}>
+                    {reminderSending
+                      ? "Sende…"
+                      : `Erinnerung an ${missing.length} Ausstehende senden`}
+                  </button>
+                  {reminderSent && (
+                    <span className="hint" style={{ marginLeft: "0.5rem" }}>
+                      Gesendet ✅
+                    </span>
+                  )}
+                </p>
+              );
+            })()}
             <table>
               <thead>
                 <tr>
