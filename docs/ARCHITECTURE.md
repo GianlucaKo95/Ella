@@ -140,7 +140,11 @@ RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte 
 ## 8. Admin-Einstellungen (`app_settings`)
 Eine globale, admin-editierbare Konfiguration, gebündelt im eigenen "Einstellungen"-Tab der
 Admin-Planung (§10) — bewusst getrennt von der eigentlichen Schicht-/Backplanung, damit dort nur
-die tagesaktuelle Planungsarbeit sichtbar ist:
+die tagesaktuelle Planungsarbeit sichtbar ist. Der Tab besteht aus einzelnen, standardmäßig
+zugeklappten Abschnitten (`SettingsSection`-Komponente, `AdminPlanning.tsx`) — jeder zeigt
+zugeklappt Titel + eine knappe Zusammenfassung des aktuellen Stands (z. B. "3 Truppen",
+"7 Kuchen hinterlegt"), damit ein Überblick über alle Themen auch ohne Aufklappen möglich ist
+(Feedback: eine einzige lange Karte mit allem offen war unübersichtlich). Themen:
 - **Abrechnungszeitraum** (`billing_period_start_day`): an welchem Tag des Monats der Zeitraum beginnt, der für die „voraussichtlichen Stunden" im Mitarbeiter-Kalender zählt. `1` = klassischer Kalendermonat. Betrifft **ausschließlich** diese Stundenanzeige.
 - **Service-/Back-Tage** (`service_days`/`bake_days`): Wochentags-Toggle, bestimmen welche Wochentage in der Monatsplanung (§10) als Service- bzw. Back-Tage gelten, z. B. um die Back-Tage zu reduzieren, wenn weniger gebacken werden muss. Nur `service_days` bestimmt, für welche Tage ein Mitarbeiter vor dem Einreichen eine Verfügbarkeit braucht (§9) — Back-Tage nicht, da Backeinträge per Truppe (`bake_team_id`) zugewiesen werden, nicht anhand individueller Verfügbarkeit.
 - **Frühschicht-Tage** (`frueh_days`, Migration 0012): Wochentags-Toggle wie `service_days`/`bake_days`, an welchen Tagen normalerweise eine Frühschicht stattfindet (Default nur Sa/So, wie im echten Café-Betrieb — Mo–Fr nur Spätschicht). Kein reines An/Aus: an Tagen außerhalb `frueh_days` zeigt die Schichtplanung (§10) statt der "+ Früh"-Buttons einen "+ Ausnahme: Frühschicht"-Link, der sie für genau diesen Tag freischaltet — Frühschichten "aus der Reihe" bleiben damit weiterhin möglich, ohne dass sie an jedem Tag als gleichwertige Standardoption erscheinen. Leeres Array ist gültig (nie normalerweise, nur Ausnahmen). `staffing_requirements` mit `shift_type = 'frueh'` werden unabhängig davon weiter angezeigt (Bedarfstext).

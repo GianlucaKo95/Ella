@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchAppSettings, notifyEmployees, supabase } from "../lib/supabase";
 import {
   monthDaysMatching,
@@ -82,6 +82,38 @@ type PendingSwap = {
   shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
 };
 type Tab = "schicht" | "back" | "einstellungen";
+
+// Aufklappbarer Abschnitt für den Einstellungen-Tab (war vorher eine einzige
+// lange Karte mit allem offen untereinander — Feedback: "unübersichtlich").
+// Zugeklappt zeigt jeder Abschnitt Titel + eine kurze Zusammenfassung des
+// aktuellen Stands, damit ein Überblick auch ohne Aufklappen möglich ist.
+// Gleiches Auf-/Zuklapp-Muster wie die einzelnen Kuchen weiter unten.
+function SettingsSection({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card">
+      <button
+        type="button"
+        className="ghost"
+        style={{
+          width: "100%",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          textAlign: "left"
+        }}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+          <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>{title}</span>
+          {subtitle && <span style={{ fontWeight: 400, fontSize: "0.74rem", color: "var(--ink-soft)" }}>{subtitle}</span>}
+        </span>
+        <span style={{ color: "var(--ink-soft)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <div style={{ marginTop: "0.9rem" }}>{children}</div>}
+    </div>
+  );
+}
 
 export function AdminPlanning() {
   const [tab, setTab] = useState<Tab>("schicht");
@@ -813,8 +845,10 @@ export function AdminPlanning() {
 
       {tab === "einstellungen" && (
         <>
-          <div className="card">
-            <h3>Einstellungen</h3>
+          <SettingsSection
+            title="Abrechnungszeitraum"
+            subtitle={`Beginnt am ${billingStartDay}. · aktuell ${formatDayMonth(previewPeriod.start)}–${formatDayMonth(previewPeriod.end)}`}
+          >
             <div className="field">
               <label>Abrechnungszeitraum beginnt am Tag des Monats</label>
               <div className="row-actions">
@@ -835,13 +869,17 @@ export function AdminPlanning() {
                 </button>
               </div>
               <p className="hint">
-                Aktueller Zeitraum: {formatDayMonth(previewPeriod.start)}–{formatDayMonth(previewPeriod.end)} ·
-                gilt für die "voraussichtlichen Stunden" im Kalender jedes Mitarbeiters. 1 = klassischer
+                Gilt für die "voraussichtlichen Stunden" im Kalender jedes Mitarbeiters. 1 = klassischer
                 Kalendermonat.
               </p>
             </div>
+          </SettingsSection>
 
-            <div className="field" style={{ marginTop: "1rem" }}>
+          <SettingsSection
+            title="Öffnungs- & Back-Tage"
+            subtitle={`Service: ${savedServiceDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")} · Backen: ${savedBakeDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")} · Früh: ${savedFruehDays.length > 0 ? savedFruehDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/") : "nie normalerweise"}`}
+          >
+            <div className="field">
               <label>An diesen Tagen ist Service (Dienstplan)</label>
               <div className="day-toggle-row">
                 {DAY_NAMES.map((name, idx) => (
@@ -930,10 +968,12 @@ export function AdminPlanning() {
             >
               Tage speichern
             </button>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Sondertage</h3>
+          <SettingsSection
+            title="Sondertage"
+            subtitle={specialDays.length === 0 ? "Keine angelegt" : `${specialDays.length} Termin${specialDays.length === 1 ? "" : "e"}`}
+          >
             <p className="hint" style={{ marginTop: 0 }}>
               Für Feiertage, Muttertag & Co., an denen zusätzlich geöffnet ist und/oder zusätzlich eine
               Frühschicht angeboten wird — der Tag erscheint dann automatisch im Dienstplan oben und in der
@@ -1010,10 +1050,12 @@ export function AdminPlanning() {
                 </li>
               ))}
             </ul>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Back-Truppen</h3>
+          <SettingsSection
+            title="Back-Truppen"
+            subtitle={bakeTeams.length === 0 ? "Keine angelegt" : `${bakeTeams.length} Truppe${bakeTeams.length === 1 ? "" : "n"}`}
+          >
             {bakeTeams.map((t) => {
               const members = employees.filter((e) => e.bake_team_id === t.id);
               const candidates = employees.filter((e) => e.bake_team_id !== t.id);
@@ -1073,10 +1115,12 @@ export function AdminPlanning() {
               />
               <button className="ghost" onClick={addBakeTeam}>+ Truppe anlegen</button>
             </p>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Kuchen</h3>
+          <SettingsSection
+            title="Kuchen"
+            subtitle={cakeItems.length === 0 ? "Keine hinterlegt" : `${cakeItems.length} Kuchen hinterlegt`}
+          >
             <p style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
               Nur hier hinterlegte Kuchen stehen bei der Backplanung zur Auswahl. Zum Bearbeiten antippen.
             </p>
@@ -1257,10 +1301,12 @@ export function AdminPlanning() {
               </p>
               <button className="ghost" onClick={addCakeItem}>+ Kuchen anlegen</button>
             </div>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Verfügbarkeits-Stichtag für {monthLabel(nextMonth)}</h3>
+          <SettingsSection
+            title={`Verfügbarkeits-Stichtag für ${monthLabel(nextMonth)}`}
+            subtitle={`${submissions.length}/${employees.length} eingereicht${deadline ? ` · Stichtag ${new Date(deadline).toLocaleDateString("de-DE")}` : ""}`}
+          >
             <p>
               <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />{" "}
               <button className="ghost" onClick={saveDeadline}>Stichtag speichern</button>
@@ -1292,7 +1338,7 @@ export function AdminPlanning() {
                 })}
               </tbody>
             </table>
-          </div>
+          </SettingsSection>
         </>
       )}
     </div>
