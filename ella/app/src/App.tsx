@@ -9,6 +9,7 @@ import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { Kalender } from "./pages/Kalender";
 import { Profil } from "./pages/Profil";
+import { Backen } from "./pages/Backen";
 import { AdminPlanning } from "./pages/AdminPlanning";
 import { AdminEmployees } from "./pages/AdminEmployees";
 
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="/home" element={<Home employee={employee} />} />
           <Route path="/kalender" element={<Kalender employee={employee} />} />
           <Route path="/profil" element={<Profil employee={employee} onEmployeeChanged={refresh} />} />
+          {employee.bake_team_id && <Route path="/backen" element={<Backen employee={employee} />} />}
           {employee.role === "admin" && (
             <>
               <Route path="/admin/planung" element={<AdminPlanning />} />

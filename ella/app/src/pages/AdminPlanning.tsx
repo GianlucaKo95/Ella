@@ -53,6 +53,15 @@ type CakeItem = {
   ingredients: string | null;
   recipe_note: string | null;
 };
+type CakeRecipeIngredient = {
+  id: string;
+  cake_item_id: string;
+  sort_order: number;
+  ingredient: string;
+  quantity: number | null;
+  unit: string | null;
+  note: string | null;
+};
 type BakeEntryRow = {
   id: string;
   date: string;
@@ -89,7 +98,13 @@ export function AdminPlanning() {
   const [requirements, setRequirements] = useState<StaffingReq[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [cakeItems, setCakeItems] = useState<CakeItem[]>([]);
+  const [recipeIngredients, setRecipeIngredients] = useState<CakeRecipeIngredient[]>([]);
   const [expandedCakeIds, setExpandedCakeIds] = useState<Set<string>>(new Set());
+  // Entwurf für "Zutat hinzufügen" je Kuchen (nur während der Eingabe gehalten).
+  const [newIngredientDraft, setNewIngredientDraft] = useState<
+    Record<string, { ingredient: string; quantity: string; unit: string; note: string }>
+  >({});
+  const [bakeTeamDays, setBakeTeamDays] = useState<{ day_of_week: number; bake_team_id: string }[]>([]);
   const [bakeEntries, setBakeEntries] = useState<BakeEntryRow[]>([]);
   const [bakeTeams, setBakeTeams] = useState<BakeTeam[]>([]);
   const [deadline, setDeadline] = useState<string>("");
@@ -156,38 +171,43 @@ export function AdminPlanning() {
   const bkDateStrs = bkDays.map(toDateStr);
 
   async function loadAll() {
-    const [emp, avail, req, sh, cakes, bakes, teams, deadlineRes, submissionsRes, swapsRes, auditRes, specialRes] = await Promise.all([
-      supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
-      supabase.from("availability_entries").select("*"),
-      supabase.from("staffing_requirements").select("*"),
-      supabase.from("shifts").select("*").in("date", svcDateStrs),
-      supabase.from("cake_items").select("*").order("name"),
-      supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
-      supabase.from("bake_teams").select("*"),
-      supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
-      supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr),
-      supabase
-        .from("shift_swap_requests")
-        .select(
-          "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
-        )
-        .eq("status", "accepted"),
-      supabase
-        .from("plan_audit_log")
-        .select("id,entity,date,change_summary,changed_at")
-        .gte("date", toDateStr(planMonth))
-        .lt("date", toDateStr(addMonths(planMonth, 1)))
-        .order("changed_at", { ascending: false })
-        .limit(50),
-      supabase.from("special_days").select("*").order("date")
-    ]);
+    const [emp, avail, req, sh, cakes, cakeIngr, bakes, teams, teamDays, deadlineRes, submissionsRes, swapsRes, auditRes, specialRes] =
+      await Promise.all([
+        supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
+        supabase.from("availability_entries").select("*"),
+        supabase.from("staffing_requirements").select("*"),
+        supabase.from("shifts").select("*").in("date", svcDateStrs),
+        supabase.from("cake_items").select("*").order("name"),
+        supabase.from("cake_recipe_ingredients").select("*").order("sort_order"),
+        supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
+        supabase.from("bake_teams").select("*"),
+        supabase.from("bake_team_days").select("*"),
+        supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
+        supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr),
+        supabase
+          .from("shift_swap_requests")
+          .select(
+            "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
+          )
+          .eq("status", "accepted"),
+        supabase
+          .from("plan_audit_log")
+          .select("id,entity,date,change_summary,changed_at")
+          .gte("date", toDateStr(planMonth))
+          .lt("date", toDateStr(addMonths(planMonth, 1)))
+          .order("changed_at", { ascending: false })
+          .limit(50),
+        supabase.from("special_days").select("*").order("date")
+      ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
     setRequirements((req.data as StaffingReq[]) || []);
     setShifts((sh.data as ShiftRow[]) || []);
     setCakeItems((cakes.data as CakeItem[]) || []);
+    setRecipeIngredients((cakeIngr.data as CakeRecipeIngredient[]) || []);
     setBakeEntries((bakes.data as BakeEntryRow[]) || []);
     setBakeTeams((teams.data as BakeTeam[]) || []);
+    setBakeTeamDays((teamDays.data as { day_of_week: number; bake_team_id: string }[]) || []);
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
@@ -304,6 +324,40 @@ export function AdminPlanning() {
     loadAll();
   }
 
+  function ingredientDraftFor(cakeItemId: string) {
+    return newIngredientDraft[cakeItemId] ?? { ingredient: "", quantity: "", unit: "", note: "" };
+  }
+
+  async function addRecipeIngredient(cakeItemId: string) {
+    const draft = newIngredientDraft[cakeItemId];
+    if (!draft?.ingredient.trim()) return;
+    const existingCount = recipeIngredients.filter((i) => i.cake_item_id === cakeItemId).length;
+    await supabase.from("cake_recipe_ingredients").insert({
+      cake_item_id: cakeItemId,
+      sort_order: existingCount,
+      ingredient: draft.ingredient.trim(),
+      quantity: draft.quantity.trim() ? Number(draft.quantity) : null,
+      unit: draft.unit.trim() || null,
+      note: draft.note.trim() || null
+    });
+    setNewIngredientDraft((prev) => ({ ...prev, [cakeItemId]: { ingredient: "", quantity: "", unit: "", note: "" } }));
+    loadAll();
+  }
+
+  async function deleteRecipeIngredient(id: string) {
+    await supabase.from("cake_recipe_ingredients").delete().eq("id", id);
+    loadAll();
+  }
+
+  async function setBakeTeamDay(dayOfWeek: number, teamId: string | null) {
+    if (teamId) {
+      await supabase.from("bake_team_days").upsert({ day_of_week: dayOfWeek, bake_team_id: teamId }, { onConflict: "day_of_week" });
+    } else {
+      await supabase.from("bake_team_days").delete().eq("day_of_week", dayOfWeek);
+    }
+    loadAll();
+  }
+
   useEffect(() => {
     fetchAppSettings().then((s) => {
       setBillingStartDay(s.billing_period_start_day);
@@ -371,12 +425,16 @@ export function AdminPlanning() {
 
   async function addBakeEntry(date: string) {
     if (cakeItems.length === 0) return;
-    await supabase.from("bake_plan_entries").insert({
+    const dow = isoDayOfWeek(parseDateStr(date));
+    const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
+    const { error } = await supabase.from("bake_plan_entries").insert({
       date,
       cake_item_id: cakeItems[0].id,
       quantity: 1,
+      bake_team_id: defaultTeamId,
       status: "draft"
     });
+    if (error) alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
     loadAll();
   }
 
@@ -816,6 +874,30 @@ export function AdminPlanning() {
             </div>
 
             <div className="field" style={{ marginTop: "0.8rem" }}>
+              <label>Feste Truppe je Back-Tag (optional)</label>
+              <p className="hint" style={{ marginTop: 0 }}>
+                Ist hier eine Truppe hinterlegt, wird sie beim Anlegen eines neuen Backeintrags an diesem Wochentag
+                automatisch vorausgewählt, statt sie jedes Mal manuell zu setzen.
+              </p>
+              {savedBakeDays.map((dow) => (
+                <div key={dow} className="row-actions" style={{ marginTop: "0.3rem" }}>
+                  <span style={{ width: "6rem" }}>{DAY_NAMES[dow]}</span>
+                  <select
+                    value={bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? ""}
+                    onChange={(e) => setBakeTeamDay(dow, e.target.value || null)}
+                  >
+                    <option value="">– immer manuell wählen –</option>
+                    {bakeTeams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div className="field" style={{ marginTop: "0.8rem" }}>
               <label>An diesen Tagen ist normalerweise eine Frühschicht</label>
               <div className="day-toggle-row">
                 {DAY_NAMES.map((name, idx) => (
@@ -1032,7 +1114,92 @@ export function AdminPlanning() {
                       </div>
                       <p style={{ margin: "0.5rem 0 0" }}>
                         <label className="label-caps">
-                          Zutaten
+                          Zutatenliste
+                        </label>
+                        <ul style={{ listStyle: "none", padding: 0, margin: "0.3rem 0 0" }}>
+                          {recipeIngredients
+                            .filter((i) => i.cake_item_id === c.id)
+                            .map((i) => (
+                              <li
+                                key={i.id}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  padding: "0.25rem 0",
+                                  borderBottom: "1px solid var(--border)",
+                                  fontSize: "0.85rem"
+                                }}
+                              >
+                                <span>
+                                  {i.quantity != null && `${i.quantity} `}
+                                  {i.unit && `${i.unit} `}
+                                  {i.ingredient}
+                                  {i.note && <span style={{ color: "var(--ink-soft)" }}> — {i.note}</span>}
+                                </span>
+                                <button
+                                  className="ghost"
+                                  style={{ fontSize: "0.65rem", padding: "0.2rem 0.4rem" }}
+                                  onClick={() => deleteRecipeIngredient(i.id)}
+                                >
+                                  ✕
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
+                        <div className="row-actions" style={{ flexWrap: "wrap", marginTop: "0.4rem" }}>
+                          <input
+                            style={{ width: "4.5rem" }}
+                            placeholder="Menge"
+                            value={newIngredientDraft[c.id]?.quantity ?? ""}
+                            onChange={(e) =>
+                              setNewIngredientDraft((prev) => ({
+                                ...prev,
+                                [c.id]: { ...ingredientDraftFor(c.id), quantity: e.target.value }
+                              }))
+                            }
+                          />
+                          <input
+                            style={{ width: "4.5rem" }}
+                            placeholder="Einheit"
+                            value={newIngredientDraft[c.id]?.unit ?? ""}
+                            onChange={(e) =>
+                              setNewIngredientDraft((prev) => ({
+                                ...prev,
+                                [c.id]: { ...ingredientDraftFor(c.id), unit: e.target.value }
+                              }))
+                            }
+                          />
+                          <input
+                            style={{ flex: 1, minWidth: "8rem" }}
+                            placeholder="Zutat"
+                            value={newIngredientDraft[c.id]?.ingredient ?? ""}
+                            onChange={(e) =>
+                              setNewIngredientDraft((prev) => ({
+                                ...prev,
+                                [c.id]: { ...ingredientDraftFor(c.id), ingredient: e.target.value }
+                              }))
+                            }
+                          />
+                          <input
+                            style={{ flex: 1, minWidth: "8rem" }}
+                            placeholder="Notiz (optional)"
+                            value={newIngredientDraft[c.id]?.note ?? ""}
+                            onChange={(e) =>
+                              setNewIngredientDraft((prev) => ({
+                                ...prev,
+                                [c.id]: { ...ingredientDraftFor(c.id), note: e.target.value }
+                              }))
+                            }
+                          />
+                          <button className="ghost" onClick={() => addRecipeIngredient(c.id)}>
+                            + Zutat
+                          </button>
+                        </div>
+                      </p>
+                      <p style={{ margin: "0.5rem 0 0" }}>
+                        <label className="label-caps">
+                          Zutaten (Freitext, Fallback ohne Liste oben)
                           <br />
                           <textarea
                             style={{ width: "100%", marginTop: 4 }}

@@ -62,6 +62,18 @@ export function IconLogout() {
   );
 }
 
+export function IconCake() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6" />
+      <path d="M4 20h16" />
+      <path d="M4 16c1 1 2 1 3 0s2-1 3 0 2 1 3 0 2-1 3 0 2 1 3 0" />
+      <path d="M12 12V8" />
+      <circle cx="12" cy="5.5" r="1.5" />
+    </svg>
+  );
+}
+
 export function IconBell() {
   return (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
