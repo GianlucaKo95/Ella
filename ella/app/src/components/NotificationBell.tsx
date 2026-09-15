@@ -51,7 +51,7 @@ export function NotificationBell({ employee }: { employee: Employee }) {
   }
 
   return (
-    <div style={{ position: "relative" }}>
+    <div>
       <button className="notif-bell" onClick={onOpen} aria-label="Benachrichtigungen">
         <IconBell />
         {unreadCount > 0 && <span className="badge-dot">{unreadCount > 9 ? "9+" : unreadCount}</span>}

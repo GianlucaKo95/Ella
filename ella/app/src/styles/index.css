@@ -81,6 +81,7 @@ h1, h2, h3, h4 {
   color: var(--accent);
 }
 .brand-header .who {
+  position: relative;
   margin-left: auto;
   display: flex;
   align-items: center;
