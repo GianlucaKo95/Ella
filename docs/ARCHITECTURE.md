@@ -155,7 +155,14 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   Standard-Browser-Erlaubnis an und registriert das Abo beim Push-Dienst des
   Browsers (`PushManager.subscribe`) mit dem öffentlichen VAPID-Schlüssel.
   RLS: jede:r verwaltet ausschließlich das eigene Abo
-  (`employee_id = current_employee_id()`).
+  (`employee_id = current_employee_id()`). Jede Person muss das für ihr
+  eigenes Gerät einmalig selbst aktivieren (Browser-Erlaubnis lässt sich nicht
+  im Namen anderer erteilen) — ein "Push-Benachrichtigungen aktivieren"-Button
+  (`usePushToggle`-Hook + `PushToggleButton`-Komponente, geteilt zwischen
+  beiden Stellen) sitzt sowohl in den Admin-Einstellungen (§8, eigene
+  "Benachrichtigungen"-Sektion) als auch im Profil jedes Mitarbeiters — ohne
+  aktiviertes Abo kommt bei dieser Person nichts an, auch nicht bei einer
+  Admin-Erinnerung.
 - **Service Worker** (`src/sw.ts`): vite-plugin-pwa läuft dafür nicht mehr im
   Standard-Modus (`generateSW`, kein eigener Code möglich), sondern als
   `injectManifest` mit eigenem SW-Quelltext — der fügt `push`- und
@@ -290,8 +297,7 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 
 ## 14. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
-- **Web Push nur für die zwei/drei neuen Ereignisse verdrahtet** (§7a): `shift_published`/`bake_plan_published`/`announcement` laufen technisch schon über dieselbe Edge Function und würden bei einem Abo genauso pushen — bisher hat sie nur niemand abonniert, da der "Push aktivieren"-Button aktuell nur in den Admin-Einstellungen sichtbar ist. Eine Ausweitung auf normale Mitarbeiter (eigener Button z. B. im Profil) wäre ohne weitere Backend-Änderung möglich.
-- **Kein Fallback ohne Push-API**: Ältere/eingebettete WebViews ohne `PushManager`-Unterstützung zeigen in den Einstellungen entsprechend "wird nicht unterstützt" und bleiben auf die In-App-Glocke (60s-Poll) beschränkt — es gibt aktuell keinen zweiten Kanal (z. B. `ha_notify` über die Supervisor-API) als Ersatz dafür.
+- **Kein Fallback ohne Push-API**: Ältere/eingebettete WebViews ohne `PushManager`-Unterstützung zeigen entsprechend "wird nicht unterstützt" und bleiben auf die In-App-Glocke (60s-Poll) beschränkt — es gibt aktuell keinen zweiten Kanal (z. B. `ha_notify` über die Supervisor-API) als Ersatz dafür.
 - **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
 - **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.

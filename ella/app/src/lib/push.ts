@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
 // Öffentlicher VAPID-Schlüssel — unkritisch, wird beim Abonnieren an den
@@ -60,4 +61,32 @@ export async function disablePush(): Promise<void> {
   if (!sub) return;
   await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
   await sub.unsubscribe();
+}
+
+// Bündelt den kompletten "Push aktivieren/deaktivieren"-Ablauf für eine
+// Person, wiederverwendet in AdminPlanning (Admin-Einstellungen) und Profil
+// (jede:r Mitarbeiter:in) statt ihn zweimal fast identisch zu implementieren.
+export function usePushToggle(employeeId: string) {
+  const [state, setState] = useState<PushState | "loading">("loading");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPushState().then(setState);
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    setError(null);
+    if (state === "subscribed") {
+      await disablePush();
+    } else {
+      const err = await enablePush(employeeId);
+      if (err) setError(err);
+    }
+    setState(await getPushState());
+    setBusy(false);
+  }
+
+  return { state, busy, error, toggle };
 }

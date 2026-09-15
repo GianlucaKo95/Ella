@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchAppSettings, notifyEmployees, supabase, type Employee } from "../lib/supabase";
-import { disablePush, enablePush, getPushState, isPushSupported, type PushState } from "../lib/push";
+import { usePushToggle } from "../lib/push";
+import { PushToggleButton } from "../components/PushToggleButton";
 import {
   monthDaysMatching,
   mergeUniqueDates,
@@ -174,9 +175,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
-  const [pushState, setPushState] = useState<PushState | "loading">("loading");
-  const [pushBusy, setPushBusy] = useState(false);
-  const [pushError, setPushError] = useState<string | null>(null);
+  const push = usePushToggle(employee.id);
   const [reminderSending, setReminderSending] = useState(false);
   const [reminderSent, setReminderSent] = useState(false);
   const dayRulesDirty =
@@ -406,21 +405,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       setSavedFruehDays(s.frueh_days);
       setFruehDaysState(s.frueh_days);
     });
-    getPushState().then(setPushState);
   }, []);
-
-  async function togglePush() {
-    setPushBusy(true);
-    setPushError(null);
-    if (pushState === "subscribed") {
-      await disablePush();
-    } else {
-      const error = await enablePush(employee.id);
-      if (error) setPushError(error);
-    }
-    setPushState(await getPushState());
-    setPushBusy(false);
-  }
 
   async function sendReminder() {
     const missingIds = employees
@@ -884,11 +869,11 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
           <SettingsSection
             title="Benachrichtigungen"
             subtitle={
-              pushState === "subscribed"
+              push.state === "subscribed"
                 ? "Push-Benachrichtigungen aktiv auf diesem Gerät"
-                : pushState === "unsupported"
+                : push.state === "unsupported"
                 ? "Von diesem Browser nicht unterstützt"
-                : pushState === "denied"
+                : push.state === "denied"
                 ? "Erlaubnis wurde verweigert"
                 : "Push-Benachrichtigungen nicht aktiviert"
             }
@@ -898,22 +883,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
               sobald ein angenommener Schichttausch auf Bestätigung wartet oder jemand seine Verfügbarkeit
               eingereicht hat.
             </p>
-            {pushState === "unsupported" && (
-              <p className="hint warn">Dieser Browser unterstützt keine Push-Benachrichtigungen.</p>
-            )}
-            {pushState === "denied" && (
-              <p className="hint warn">
-                Die Erlaubnis für Benachrichtigungen wurde verweigert — bitte in den Browser-/App-Einstellungen für
-                diese Seite erlauben und danach neu laden.
-              </p>
-            )}
-            {pushError && <p className="hint warn">{pushError}</p>}
-            <button
-              disabled={pushBusy || pushState === "unsupported" || pushState === "denied" || pushState === "loading"}
-              onClick={togglePush}
-            >
-              {pushState === "subscribed" ? "Push-Benachrichtigungen deaktivieren" : "Push-Benachrichtigungen aktivieren"}
-            </button>
+            <PushToggleButton state={push.state} busy={push.busy} error={push.error} onToggle={push.toggle} />
           </SettingsSection>
 
           <SettingsSection

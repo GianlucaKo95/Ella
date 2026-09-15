@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchAppSettings, notifyAdmins, removeMyAvatar, supabase, uploadMyAvatar, type Employee } from "../lib/supabase";
+import { usePushToggle } from "../lib/push";
+import { PushToggleButton } from "../components/PushToggleButton";
 import {
   DAY_NAMES,
   MONTH_NAMES,
@@ -62,6 +64,7 @@ type AvailabilityEntry = {
 type SpecialDay = { date: string; label: string; service_exception: boolean; frueh_exception: boolean };
 
 export function Profil({ employee, onEmployeeChanged }: { employee: Employee; onEmployeeChanged?: () => void }) {
+  const push = usePushToggle(employee.id);
   const [entries, setEntries] = useState<AvailabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   // Drei Auswahlfelder statt <input type="date"> — dessen natives
@@ -286,6 +289,15 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
           </button>
         </div>
         {nameSaved && <p style={{ color: "var(--mint)", margin: "0.5rem 0 0", fontSize: "0.8rem" }}>Gespeichert ✅</p>}
+      </div>
+
+      <div className="card">
+        <h3>Benachrichtigungen</h3>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Aktiviert für dieses Gerät/diesen Browser eine echte Push-Benachrichtigung (auch außerhalb der App), z. B.
+          wenn der Dienstplan veröffentlicht wurde oder eine neue Ankündigung da ist.
+        </p>
+        <PushToggleButton state={push.state} busy={push.busy} error={push.error} onToggle={push.toggle} />
       </div>
 
       <div className={`card ${submittedAt ? "" : isLate ? "card-attention" : ""}`}>
