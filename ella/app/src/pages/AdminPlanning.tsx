@@ -193,12 +193,15 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Wochentage überhaupt Service- bzw. Back-Tage sind, kommt aus den zuletzt
   // GESPEICHERTEN Einstellungen — ein unsaved Toggle ändert die Planung unten
   // erst nach "Tage speichern" (siehe dayRulesDirty-Hinweis im UI). Sondertage
-  // mit "zusätzlich geöffnet" ergänzen einzelne Zusatztermine unabhängig vom
-  // Wochentag (z. B. ein sonst schichtfreier Montag für Muttertag).
+  // mit "zusätzlich geöffnet" ODER "zusätzlich Frühschicht" ergänzen einzelne
+  // Zusatztermine unabhängig vom Wochentag (z. B. ein sonst schichtfreier
+  // Montag für Muttertag) — auch ein reiner frueh_exception-Sondertag braucht
+  // eine Tageskarte, sonst gäbe es dort gar keinen "+ Früh"-Button zum
+  // Anlegen der besonderen Schicht.
   const svcDays = useMemo(() => {
     const base = monthDaysMatching(planMonth, savedServiceDays);
     const extra = specialDays
-      .filter((sd) => sd.service_exception)
+      .filter((sd) => sd.service_exception || sd.frueh_exception)
       .map((sd) => parseDateStr(sd.date))
       .filter((d) => d.getFullYear() === planMonth.getFullYear() && d.getMonth() === planMonth.getMonth());
     return mergeUniqueDates(base, extra);

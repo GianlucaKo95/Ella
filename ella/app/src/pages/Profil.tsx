@@ -183,10 +183,13 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   // ohnehin vorrangig vor 'recurring', hier also keine Backend-Änderung nötig.
   const specialByDate = new Map(specialDays.map((sd) => [sd.date, sd]));
   // Vom Admin angelegte Sondertage (Feiertage, Muttertag, ...) mit
-  // "zusätzlich geöffnet" ergänzen die normalen Öffnungstage um einzelne
-  // Zusatztermine im einreichbaren Monat.
+  // "zusätzlich geöffnet" ODER "zusätzlich Frühschicht" ergänzen die normalen
+  // Öffnungstage um einzelne Zusatztermine im einreichbaren Monat — auch ein
+  // reiner frueh_exception-Sondertag (ohne zusätzliche Öffnung) braucht eine
+  // Verfügbarkeitsabfrage, sonst könnte niemand "kann Früh" dafür angeben und
+  // müsste den Tag mühsam über "Weitere Termine" unten erraten.
   const extraServiceDates = specialDays
-    .filter((sd) => sd.service_exception)
+    .filter((sd) => sd.service_exception || sd.frueh_exception)
     .map((sd) => parseDateStr(sd.date))
     .filter((d) => d.getFullYear() === nextMonth.getFullYear() && d.getMonth() === nextMonth.getMonth());
   const relevantDates = mergeUniqueDates(monthDaysMatching(nextMonth, requiredDays), extraServiceDates);
