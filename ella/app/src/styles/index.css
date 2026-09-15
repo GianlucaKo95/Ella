@@ -379,6 +379,28 @@ button.ghost {
 .segmented button.on { background: var(--mint); color: white; }
 .segmented button.off-on { background: var(--attention); color: white; }
 
+/* Auswahl aus mehreren Optionen (kann/kann nicht, Früh/Spät/ganztags, ...),
+   bei der jede Option klar als eigener Button erkennbar sein soll — anders
+   als .segmented (dort teilen sich unausgewählte Optionen eine gemeinsame,
+   randlose Fläche und sind ohne Auswahl kaum als getrennte Buttons zu
+   erkennen, Feedback: "fehlt die Abgrenzung zwischen den einzelnen Punkten").
+   Jede Option bekommt hier immer einen sichtbaren Rand, auch unausgewählt. */
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.choice-row button {
+  background: var(--surface);
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
+  font-size: 0.74rem;
+  padding: 0.4rem 0.85rem;
+  white-space: nowrap;
+}
+.choice-row button.on { background: var(--mint); color: white; border-color: var(--mint); }
+.choice-row button.off-on { background: var(--attention); color: white; border-color: var(--attention); }
+
 /* ---- Statistik-Reihe ---- */
 .stat-row {
   display: flex;

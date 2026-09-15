@@ -345,7 +345,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
                       🔒 {choiceLabel(choice)}
                     </span>
                   ) : (
-                    <div className="segmented">
+                    <div className="choice-row">
                       {hasFrueh ? (
                         <>
                           <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
