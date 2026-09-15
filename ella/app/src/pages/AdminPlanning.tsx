@@ -176,6 +176,16 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const push = usePushToggle(employee.id);
+  // Schichtplanung: nur ein Tag gleichzeitig aufgeklappt (Akkordeon statt
+  // mehrerer unabhängiger Klapp-Zustände wie bei Kuchen/Mitarbeitern) — bei
+  // einem ganzen Monat Tageskarten wäre die Liste sonst sehr schnell wieder
+  // ewig lang, sobald man mehrere Tage gleichzeitig offen lässt. Startet mit
+  // dem heutigen Tag aufgeklappt (falls der ein Service-Tag ist), sonst
+  // zugeklappt.
+  const [expandedShiftDay, setExpandedShiftDay] = useState<string | null>(() => toDateStr(new Date()));
+  // Gleiches Akkordeon-Muster für die Backplanung — dieselbe lange
+  // Ein-Tag-eine-Karte-Liste, dasselbe Problem.
+  const [expandedBakeDay, setExpandedBakeDay] = useState<string | null>(() => toDateStr(new Date()));
   const [reminderSending, setReminderSending] = useState(false);
   const [reminderSent, setReminderSent] = useState(false);
   const dayRulesDirty =
@@ -659,83 +669,106 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             const dayReqs = requirements.filter((r) => r.day_of_week === dow);
             const dayShifts = shifts.filter((s) => s.date === dateStr);
             const specialDay = specialDays.find((sd) => sd.date === dateStr);
+            const expanded = expandedShiftDay === dateStr;
+            const unassignedCount = dayShifts.filter((s) => !s.employee_id).length;
             return (
               <div className="card" key={dateStr}>
-                <h4>
-                  {DAY_NAMES[dow]}, {dateStr}
-                  {specialDay && (
-                    <span className="badge" style={{ marginLeft: "0.5rem" }}>
-                      🎉 {specialDay.label}
+                <button
+                  type="button"
+                  className="ghost"
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" }}
+                  onClick={() => setExpandedShiftDay((prev) => (prev === dateStr ? null : dateStr))}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>
+                      {DAY_NAMES[dow]}, {dateStr}
+                      {specialDay && (
+                        <span className="badge" style={{ marginLeft: "0.5rem" }}>
+                          🎉 {specialDay.label}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </h4>
-                {dayReqs.length > 0 && (
-                  <p style={{ fontSize: "0.85rem", color: "#666" }}>
-                    Bedarf:{" "}
-                    {dayReqs
-                      .map((r) => `${r.shift_type}${r.role_tag ? "/" + r.role_tag : ""}: ${r.required_count}`)
-                      .join(", ")}
-                  </p>
-                )}
-                <table className="stack">
-                  <thead>
-                    <tr>
-                      <th>Schicht</th>
-                      <th>Rolle</th>
-                      <th>Zeit</th>
-                      <th>Mitarbeiter (Verfügbarkeit)</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayShifts.map((s) => (
-                      <tr key={s.id}>
-                        <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
-                        <td data-label="Rolle">{s.role_tag ?? "—"}</td>
-                        <td data-label="Zeit">
-                          {s.start_time}–{s.end_time}
-                        </td>
-                        <td data-label="Mitarbeiter">
-                          <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
-                            <option value="">– wählen –</option>
-                            {employees.map((emp) => (
-                              <option key={emp.id} value={emp.id}>
-                                {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td data-label="">
-                          <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {(savedFruehDays.includes(dow) || specialDay?.frueh_exception) && (
-                  <>
-                    <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
-                    <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
-                  </>
-                )}
-                {dow === 5 ? (
-                  <span className="row-actions" style={{ display: "inline-flex" }}>
-                    <select
-                      value={spaetTimeByDate[dateStr] ?? "13:00"}
-                      onChange={(e) => setSpaetTimeByDate((prev) => ({ ...prev, [dateStr]: e.target.value }))}
-                    >
-                      <option value="13:00">13:00 Uhr</option>
-                      <option value="14:00">14:00 Uhr</option>
-                    </select>
-                    <button
-                      className="ghost"
-                      onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "18:00")}
-                    >
-                      + Spät
-                    </button>
+                    <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>
+                      {dayShifts.length === 0
+                        ? "Keine Schichten"
+                        : `${dayShifts.length} Schicht${dayShifts.length === 1 ? "" : "en"}${
+                            unassignedCount > 0 ? ` · ${unassignedCount} unbesetzt` : " · alle besetzt"
+                          }`}
+                    </span>
                   </span>
-                ) : (
-                  <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+                  <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
+                </button>
+                {expanded && (
+                  <div style={{ marginTop: "0.7rem" }}>
+                    {dayReqs.length > 0 && (
+                      <p style={{ fontSize: "0.85rem", color: "#666" }}>
+                        Bedarf:{" "}
+                        {dayReqs
+                          .map((r) => `${r.shift_type}${r.role_tag ? "/" + r.role_tag : ""}: ${r.required_count}`)
+                          .join(", ")}
+                      </p>
+                    )}
+                    <table className="stack">
+                      <thead>
+                        <tr>
+                          <th>Schicht</th>
+                          <th>Rolle</th>
+                          <th>Zeit</th>
+                          <th>Mitarbeiter (Verfügbarkeit)</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dayShifts.map((s) => (
+                          <tr key={s.id}>
+                            <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
+                            <td data-label="Rolle">{s.role_tag ?? "—"}</td>
+                            <td data-label="Zeit">
+                              {s.start_time}–{s.end_time}
+                            </td>
+                            <td data-label="Mitarbeiter">
+                              <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
+                                <option value="">– wählen –</option>
+                                {employees.map((emp) => (
+                                  <option key={emp.id} value={emp.id}>
+                                    {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td data-label="">
+                              <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {(savedFruehDays.includes(dow) || specialDay?.frueh_exception) && (
+                      <>
+                        <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
+                        <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
+                      </>
+                    )}
+                    {dow === 5 ? (
+                      <span className="row-actions" style={{ display: "inline-flex" }}>
+                        <select
+                          value={spaetTimeByDate[dateStr] ?? "13:00"}
+                          onChange={(e) => setSpaetTimeByDate((prev) => ({ ...prev, [dateStr]: e.target.value }))}
+                        >
+                          <option value="13:00">13:00 Uhr</option>
+                          <option value="14:00">14:00 Uhr</option>
+                        </select>
+                        <button
+                          className="ghost"
+                          onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "18:00")}
+                        >
+                          + Spät
+                        </button>
+                      </span>
+                    ) : (
+                      <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -793,74 +826,95 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             const dateStr = bkDateStrs[i];
             const dow = isoDayOfWeek(d);
             const dayEntries = bakeEntries.filter((b) => b.date === dateStr);
+            const expanded = expandedBakeDay === dateStr;
+            const missingTeamCount = dayEntries.filter((b) => !b.bake_team_id).length;
             return (
               <div className="card" key={dateStr}>
-                <h4>
-                  {DAY_NAMES[dow]}, {dateStr}
-                </h4>
-                <table className="stack">
-                  <thead>
-                    <tr>
-                      <th>Kuchen</th>
-                      <th>Menge</th>
-                      <th>Truppe</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayEntries.map((b) => {
-                      const collisions = collisionsFor(dateStr, b.bake_team_id);
-                      return (
-                        <tr key={b.id}>
-                          <td data-label="Kuchen">
-                            <select
-                              value={b.cake_item_id}
-                              onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
-                            >
-                              {cakeItems.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td data-label="Menge">
-                            <input
-                              type="number"
-                              value={b.quantity}
-                              min={1}
-                              style={{ width: "4rem" }}
-                              onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
-                            />
-                          </td>
-                          <td data-label="Truppe">
-                            <select
-                              value={b.bake_team_id ?? ""}
-                              onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
-                            >
-                              <option value="">– wählen –</option>
-                              {bakeTeams.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                            </select>
-                            {!b.bake_team_id && <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>Keine Truppe</p>}
-                            {collisions.length > 0 && (
-                              <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>
-                                ⚠ {collisions.join(", ")} hat heute auch Service-Schicht
-                              </p>
-                            )}
-                          </td>
-                          <td data-label="">
-                            <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
-                          </td>
+                <button
+                  type="button"
+                  className="ghost"
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" }}
+                  onClick={() => setExpandedBakeDay((prev) => (prev === dateStr ? null : dateStr))}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>
+                      {DAY_NAMES[dow]}, {dateStr}
+                    </span>
+                    <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>
+                      {dayEntries.length === 0
+                        ? "Keine Einträge"
+                        : `${dayEntries.length} Kuchen${missingTeamCount > 0 ? ` · ${missingTeamCount} ohne Truppe` : ""}`}
+                    </span>
+                  </span>
+                  <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
+                </button>
+                {expanded && (
+                  <div style={{ marginTop: "0.7rem" }}>
+                    <table className="stack">
+                      <thead>
+                        <tr>
+                          <th>Kuchen</th>
+                          <th>Menge</th>
+                          <th>Truppe</th>
+                          <th />
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <button className="ghost" onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>
+                      </thead>
+                      <tbody>
+                        {dayEntries.map((b) => {
+                          const collisions = collisionsFor(dateStr, b.bake_team_id);
+                          return (
+                            <tr key={b.id}>
+                              <td data-label="Kuchen">
+                                <select
+                                  value={b.cake_item_id}
+                                  onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
+                                >
+                                  {cakeItems.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td data-label="Menge">
+                                <input
+                                  type="number"
+                                  value={b.quantity}
+                                  min={1}
+                                  style={{ width: "4rem" }}
+                                  onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
+                                />
+                              </td>
+                              <td data-label="Truppe">
+                                <select
+                                  value={b.bake_team_id ?? ""}
+                                  onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
+                                >
+                                  <option value="">– wählen –</option>
+                                  {bakeTeams.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                {!b.bake_team_id && <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>Keine Truppe</p>}
+                                {collisions.length > 0 && (
+                                  <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>
+                                    ⚠ {collisions.join(", ")} hat heute auch Service-Schicht
+                                  </p>
+                                )}
+                              </td>
+                              <td data-label="">
+                                <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <button className="ghost" onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>
+                  </div>
+                )}
               </div>
             );
           })}
