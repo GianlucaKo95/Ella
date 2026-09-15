@@ -245,7 +245,9 @@ h1, h2, h3, h4 {
 }
 
 /* ---- Tabellen ---- */
-table { width: 100%; border-collapse: collapse; background: transparent; }
+/* margin-bottom, da öfter direkt ein Aktions-Button folgt (z. B. "+ Kuchen
+   hinzufügen") — sonst klebt der Button ohne jeden Abstand am Tabellenrand. */
+table { width: 100%; border-collapse: collapse; background: transparent; margin: 0 0 0.8rem; }
 th, td {
   padding: 0.6rem 0.4rem;
   text-align: left;
@@ -422,8 +424,17 @@ button.ghost {
   padding: 0.4rem 0.6rem;
   font-size: 0.68rem;
 }
+/* Label über einem day-toggle-row/segmented-Feld (Einstellungen) — bisher
+   unstyled, dadurch klebten die Buttons direkt unter dem Labeltext. */
+.field label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+/* Zero Bottom-Margin führte dazu, dass ein direkt folgender Button (sehr
+   häufig: erklärender Hinweistext direkt vor der eigentlichen Aktion) ohne
+   jeden Abstand am Text klebte. */
 .hint {
-  margin: 0.4rem 0 0;
+  margin: 0.4rem 0 0.6rem;
   font-size: 0.72rem;
   color: var(--ink-soft);
 }
