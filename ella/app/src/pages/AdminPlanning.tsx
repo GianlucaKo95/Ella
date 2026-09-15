@@ -33,6 +33,7 @@ type AvailabilityRow = {
   to_time: string | null;
 };
 type StaffingReq = {
+  id: string;
   day_of_week: number;
   shift_type: "frueh" | "spaet";
   role_tag: "kueche" | "service" | null;
@@ -176,6 +177,16 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const push = usePushToggle(employee.id);
+  // Schichtplanung: nur ein Tag gleichzeitig aufgeklappt (Akkordeon statt
+  // mehrerer unabhängiger Klapp-Zustände wie bei Kuchen/Mitarbeitern) — bei
+  // einem ganzen Monat Tageskarten wäre die Liste sonst sehr schnell wieder
+  // ewig lang, sobald man mehrere Tage gleichzeitig offen lässt. Startet mit
+  // dem heutigen Tag aufgeklappt (falls der ein Service-Tag ist), sonst
+  // zugeklappt.
+  const [expandedShiftDay, setExpandedShiftDay] = useState<string | null>(() => toDateStr(new Date()));
+  // Gleiches Akkordeon-Muster für die Backplanung — dieselbe lange
+  // Ein-Tag-eine-Karte-Liste, dasselbe Problem.
+  const [expandedBakeDay, setExpandedBakeDay] = useState<string | null>(() => toDateStr(new Date()));
   const [reminderSending, setReminderSending] = useState(false);
   const [reminderSent, setReminderSent] = useState(false);
   const dayRulesDirty =
@@ -398,6 +409,38 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Mindestbesetzung je Wochentag/Schichtart(/Rolle) — bisher nur einmalig als
+  // Platzhalter-Werte per Migration (0002_seed.sql) angelegt, ohne dass der
+  // Admin sie je im UI sehen oder ändern konnte. role_tag ist bei 'spaet'
+  // immer null, und der unique-Constraint (day_of_week, shift_type, role_tag)
+  // behandelt zwei NULL-Werte in Postgres nicht als gleich — ein `.upsert()`
+  // mit onConflict würde eine zweite 'spaet'-Zeile für denselben Tag also
+  // nicht zuverlässig treffen. Stattdessen wie bei setDayAvailability() erst
+  // die vorhandene Zeile suchen, dann gezielt UPDATE oder INSERT.
+  function requirementCount(dayOfWeek: number, shiftType: "frueh" | "spaet", roleTag: "kueche" | "service" | null): number {
+    return (
+      requirements.find((r) => r.day_of_week === dayOfWeek && r.shift_type === shiftType && r.role_tag === roleTag)
+        ?.required_count ?? 0
+    );
+  }
+
+  async function setStaffingRequirement(dayOfWeek: number, shiftType: "frueh" | "spaet", roleTag: "kueche" | "service" | null, count: number) {
+    const existing = requirements.find(
+      (r) => r.day_of_week === dayOfWeek && r.shift_type === shiftType && r.role_tag === roleTag
+    );
+    if (existing) {
+      await supabase.from("staffing_requirements").update({ required_count: count }).eq("id", existing.id);
+    } else if (count > 0) {
+      await supabase.from("staffing_requirements").insert({
+        day_of_week: dayOfWeek,
+        shift_type: shiftType,
+        role_tag: roleTag,
+        required_count: count
+      });
+    }
+    loadAll();
+  }
+
   useEffect(() => {
     fetchAppSettings().then((s) => {
       setBillingStartDay(s.billing_period_start_day);
@@ -430,6 +473,31 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planMonth, savedServiceDays, savedBakeDays]);
+
+  // Kurzfassung für die zugeklappte Tageskarte — getrennt nach Früh/Spät
+  // (Feedback: "auf den ersten Blick einsehbar, ob da noch Leute fehlen"),
+  // je Schichtart "besetzt/geplant" statt nur einer Gesamtzahl, da eine
+  // Lücke bei Früh sonst hinter genug besetzten Spät-Schichten verschwinden
+  // könnte.
+  // Nenner ist bewusst das Maximum aus tatsächlich angelegten Schichten UND
+  // der hinterlegten Mindestbesetzung (Personalbedarf-Sektion, §8) — nicht nur
+  // "wie viele Schichten wurden angelegt". Sonst würde eine Lücke, bei der für
+  // einen Tag noch gar keine Schicht angelegt wurde, in der Zusammenfassung
+  // unsichtbar bleiben ("Früh 1/1" trotz eigentlich benötigter 2 Personen).
+  function shiftSummary(dayShifts: ShiftRow[], dayReqs: StaffingReq[]): string {
+    const parts: string[] = [];
+    for (const [label, type] of [
+      ["Früh", "frueh"],
+      ["Spät", "spaet"]
+    ] as const) {
+      const ofType = dayShifts.filter((s) => s.shift_type === type);
+      const required = dayReqs.filter((r) => r.shift_type === type).reduce((sum, r) => sum + r.required_count, 0);
+      if (ofType.length === 0 && required === 0) continue;
+      const assigned = ofType.filter((s) => s.employee_id).length;
+      parts.push(`${label} ${assigned}/${Math.max(ofType.length, required)}`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : "Keine Schichten";
+  }
 
   // shiftStartTime prüft bei gesetztem Zeitfenster (from_time/to_time, "nur
   // Früh"/"nur Spät" aus dem Profil) zusätzlich, ob die konkrete Schicht in
@@ -659,83 +727,100 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             const dayReqs = requirements.filter((r) => r.day_of_week === dow);
             const dayShifts = shifts.filter((s) => s.date === dateStr);
             const specialDay = specialDays.find((sd) => sd.date === dateStr);
+            const expanded = expandedShiftDay === dateStr;
+            const summary = shiftSummary(dayShifts, dayReqs);
             return (
               <div className="card" key={dateStr}>
-                <h4>
-                  {DAY_NAMES[dow]}, {dateStr}
-                  {specialDay && (
-                    <span className="badge" style={{ marginLeft: "0.5rem" }}>
-                      🎉 {specialDay.label}
+                <button
+                  type="button"
+                  className="ghost"
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" }}
+                  onClick={() => setExpandedShiftDay((prev) => (prev === dateStr ? null : dateStr))}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>
+                      {DAY_NAMES[dow]}, {dateStr}
+                      {specialDay && (
+                        <span className="badge" style={{ marginLeft: "0.5rem" }}>
+                          🎉 {specialDay.label}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </h4>
-                {dayReqs.length > 0 && (
-                  <p style={{ fontSize: "0.85rem", color: "#666" }}>
-                    Bedarf:{" "}
-                    {dayReqs
-                      .map((r) => `${r.shift_type}${r.role_tag ? "/" + r.role_tag : ""}: ${r.required_count}`)
-                      .join(", ")}
-                  </p>
-                )}
-                <table className="stack">
-                  <thead>
-                    <tr>
-                      <th>Schicht</th>
-                      <th>Rolle</th>
-                      <th>Zeit</th>
-                      <th>Mitarbeiter (Verfügbarkeit)</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayShifts.map((s) => (
-                      <tr key={s.id}>
-                        <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
-                        <td data-label="Rolle">{s.role_tag ?? "—"}</td>
-                        <td data-label="Zeit">
-                          {s.start_time}–{s.end_time}
-                        </td>
-                        <td data-label="Mitarbeiter">
-                          <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
-                            <option value="">– wählen –</option>
-                            {employees.map((emp) => (
-                              <option key={emp.id} value={emp.id}>
-                                {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td data-label="">
-                          <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {(savedFruehDays.includes(dow) || specialDay?.frueh_exception) && (
-                  <>
-                    <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
-                    <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
-                  </>
-                )}
-                {dow === 5 ? (
-                  <span className="row-actions" style={{ display: "inline-flex" }}>
-                    <select
-                      value={spaetTimeByDate[dateStr] ?? "13:00"}
-                      onChange={(e) => setSpaetTimeByDate((prev) => ({ ...prev, [dateStr]: e.target.value }))}
-                    >
-                      <option value="13:00">13:00 Uhr</option>
-                      <option value="14:00">14:00 Uhr</option>
-                    </select>
-                    <button
-                      className="ghost"
-                      onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "18:00")}
-                    >
-                      + Spät
-                    </button>
+                    <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>{summary}</span>
                   </span>
-                ) : (
-                  <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+                  <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
+                </button>
+                {expanded && (
+                  <div style={{ marginTop: "0.7rem" }}>
+                    {dayReqs.length > 0 && (
+                      <p style={{ fontSize: "0.85rem", color: "#666" }}>
+                        Bedarf:{" "}
+                        {dayReqs
+                          .map((r) => `${r.shift_type}${r.role_tag ? "/" + r.role_tag : ""}: ${r.required_count}`)
+                          .join(", ")}
+                      </p>
+                    )}
+                    <table className="stack">
+                      <thead>
+                        <tr>
+                          <th>Schicht</th>
+                          <th>Rolle</th>
+                          <th>Zeit</th>
+                          <th>Mitarbeiter (Verfügbarkeit)</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dayShifts.map((s) => (
+                          <tr key={s.id}>
+                            <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
+                            <td data-label="Rolle">{s.role_tag ?? "—"}</td>
+                            <td data-label="Zeit">
+                              {s.start_time}–{s.end_time}
+                            </td>
+                            <td data-label="Mitarbeiter">
+                              <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
+                                <option value="">– wählen –</option>
+                                {employees.map((emp) => (
+                                  <option key={emp.id} value={emp.id}>
+                                    {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td data-label="">
+                              <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {(savedFruehDays.includes(dow) || specialDay?.frueh_exception) && (
+                      <>
+                        <button className="ghost" onClick={() => addShift(dateStr, "frueh", "kueche")}>+ Früh/Küche</button>{" "}
+                        <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
+                      </>
+                    )}
+                    {dow === 5 ? (
+                      <span className="row-actions" style={{ display: "inline-flex" }}>
+                        <select
+                          value={spaetTimeByDate[dateStr] ?? "13:00"}
+                          onChange={(e) => setSpaetTimeByDate((prev) => ({ ...prev, [dateStr]: e.target.value }))}
+                        >
+                          <option value="13:00">13:00 Uhr</option>
+                          <option value="14:00">14:00 Uhr</option>
+                        </select>
+                        <button
+                          className="ghost"
+                          onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "18:00")}
+                        >
+                          + Spät
+                        </button>
+                      </span>
+                    ) : (
+                      <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -793,74 +878,95 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             const dateStr = bkDateStrs[i];
             const dow = isoDayOfWeek(d);
             const dayEntries = bakeEntries.filter((b) => b.date === dateStr);
+            const expanded = expandedBakeDay === dateStr;
+            const missingTeamCount = dayEntries.filter((b) => !b.bake_team_id).length;
             return (
               <div className="card" key={dateStr}>
-                <h4>
-                  {DAY_NAMES[dow]}, {dateStr}
-                </h4>
-                <table className="stack">
-                  <thead>
-                    <tr>
-                      <th>Kuchen</th>
-                      <th>Menge</th>
-                      <th>Truppe</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayEntries.map((b) => {
-                      const collisions = collisionsFor(dateStr, b.bake_team_id);
-                      return (
-                        <tr key={b.id}>
-                          <td data-label="Kuchen">
-                            <select
-                              value={b.cake_item_id}
-                              onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
-                            >
-                              {cakeItems.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td data-label="Menge">
-                            <input
-                              type="number"
-                              value={b.quantity}
-                              min={1}
-                              style={{ width: "4rem" }}
-                              onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
-                            />
-                          </td>
-                          <td data-label="Truppe">
-                            <select
-                              value={b.bake_team_id ?? ""}
-                              onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
-                            >
-                              <option value="">– wählen –</option>
-                              {bakeTeams.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                            </select>
-                            {!b.bake_team_id && <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>Keine Truppe</p>}
-                            {collisions.length > 0 && (
-                              <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>
-                                ⚠ {collisions.join(", ")} hat heute auch Service-Schicht
-                              </p>
-                            )}
-                          </td>
-                          <td data-label="">
-                            <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
-                          </td>
+                <button
+                  type="button"
+                  className="ghost"
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" }}
+                  onClick={() => setExpandedBakeDay((prev) => (prev === dateStr ? null : dateStr))}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>
+                      {DAY_NAMES[dow]}, {dateStr}
+                    </span>
+                    <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>
+                      {dayEntries.length === 0
+                        ? "Keine Einträge"
+                        : `${dayEntries.length} Kuchen${missingTeamCount > 0 ? ` · ${missingTeamCount} ohne Truppe` : ""}`}
+                    </span>
+                  </span>
+                  <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
+                </button>
+                {expanded && (
+                  <div style={{ marginTop: "0.7rem" }}>
+                    <table className="stack">
+                      <thead>
+                        <tr>
+                          <th>Kuchen</th>
+                          <th>Menge</th>
+                          <th>Truppe</th>
+                          <th />
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <button className="ghost" onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>
+                      </thead>
+                      <tbody>
+                        {dayEntries.map((b) => {
+                          const collisions = collisionsFor(dateStr, b.bake_team_id);
+                          return (
+                            <tr key={b.id}>
+                              <td data-label="Kuchen">
+                                <select
+                                  value={b.cake_item_id}
+                                  onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
+                                >
+                                  {cakeItems.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td data-label="Menge">
+                                <input
+                                  type="number"
+                                  value={b.quantity}
+                                  min={1}
+                                  style={{ width: "4rem" }}
+                                  onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
+                                />
+                              </td>
+                              <td data-label="Truppe">
+                                <select
+                                  value={b.bake_team_id ?? ""}
+                                  onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
+                                >
+                                  <option value="">– wählen –</option>
+                                  {bakeTeams.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                {!b.bake_team_id && <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>Keine Truppe</p>}
+                                {collisions.length > 0 && (
+                                  <p className="hint warn" style={{ margin: "0.2rem 0 0" }}>
+                                    ⚠ {collisions.join(", ")} hat heute auch Service-Schicht
+                                  </p>
+                                )}
+                              </td>
+                              <td data-label="">
+                                <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <button className="ghost" onClick={() => addBakeEntry(dateStr)}>+ Kuchen hinzufügen</button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1012,6 +1118,54 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             >
               Tage speichern
             </button>
+          </SettingsSection>
+
+          <SettingsSection title="Personalbedarf" subtitle="Mindestbesetzung je Wochentag">
+            <p className="hint" style={{ marginTop: 0 }}>
+              Legt fest, wie viele Personen je Schicht mindestens gebraucht werden — erscheint in
+              der Schichtplanung als "Bedarf" und fließt in die Zusammenfassung der zugeklappten
+              Tageskarten ein (z. B. zeigt "Früh 1/2" eine Lücke, auch wenn dafür noch gar keine
+              zweite Schicht angelegt wurde).
+            </p>
+            {savedServiceDays.map((dow) => (
+              <div key={dow} style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem", marginTop: "0.6rem" }}>
+                <label className="label-caps" style={{ display: "block", marginBottom: "0.4rem" }}>
+                  {DAY_NAMES[dow]}
+                </label>
+                <div className="row-actions" style={{ flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem" }}>
+                    Früh/Küche
+                    <input
+                      type="number"
+                      min={0}
+                      style={{ width: "4rem" }}
+                      value={requirementCount(dow, "frueh", "kueche")}
+                      onChange={(e) => setStaffingRequirement(dow, "frueh", "kueche", Math.max(0, Number(e.target.value)))}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem" }}>
+                    Früh/Service
+                    <input
+                      type="number"
+                      min={0}
+                      style={{ width: "4rem" }}
+                      value={requirementCount(dow, "frueh", "service")}
+                      onChange={(e) => setStaffingRequirement(dow, "frueh", "service", Math.max(0, Number(e.target.value)))}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem" }}>
+                    Spät
+                    <input
+                      type="number"
+                      min={0}
+                      style={{ width: "4rem" }}
+                      value={requirementCount(dow, "spaet", null)}
+                      onChange={(e) => setStaffingRequirement(dow, "spaet", null, Math.max(0, Number(e.target.value)))}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
           </SettingsSection>
 
           <SettingsSection
