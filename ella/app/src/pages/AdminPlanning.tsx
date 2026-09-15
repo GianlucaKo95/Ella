@@ -33,6 +33,7 @@ type AvailabilityRow = {
   to_time: string | null;
 };
 type StaffingReq = {
+  id: string;
   day_of_week: number;
   shift_type: "frueh" | "spaet";
   role_tag: "kueche" | "service" | null;
@@ -408,6 +409,38 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Mindestbesetzung je Wochentag/Schichtart(/Rolle) — bisher nur einmalig als
+  // Platzhalter-Werte per Migration (0002_seed.sql) angelegt, ohne dass der
+  // Admin sie je im UI sehen oder ändern konnte. role_tag ist bei 'spaet'
+  // immer null, und der unique-Constraint (day_of_week, shift_type, role_tag)
+  // behandelt zwei NULL-Werte in Postgres nicht als gleich — ein `.upsert()`
+  // mit onConflict würde eine zweite 'spaet'-Zeile für denselben Tag also
+  // nicht zuverlässig treffen. Stattdessen wie bei setDayAvailability() erst
+  // die vorhandene Zeile suchen, dann gezielt UPDATE oder INSERT.
+  function requirementCount(dayOfWeek: number, shiftType: "frueh" | "spaet", roleTag: "kueche" | "service" | null): number {
+    return (
+      requirements.find((r) => r.day_of_week === dayOfWeek && r.shift_type === shiftType && r.role_tag === roleTag)
+        ?.required_count ?? 0
+    );
+  }
+
+  async function setStaffingRequirement(dayOfWeek: number, shiftType: "frueh" | "spaet", roleTag: "kueche" | "service" | null, count: number) {
+    const existing = requirements.find(
+      (r) => r.day_of_week === dayOfWeek && r.shift_type === shiftType && r.role_tag === roleTag
+    );
+    if (existing) {
+      await supabase.from("staffing_requirements").update({ required_count: count }).eq("id", existing.id);
+    } else if (count > 0) {
+      await supabase.from("staffing_requirements").insert({
+        day_of_week: dayOfWeek,
+        shift_type: shiftType,
+        role_tag: roleTag,
+        required_count: count
+      });
+    }
+    loadAll();
+  }
+
   useEffect(() => {
     fetchAppSettings().then((s) => {
       setBillingStartDay(s.billing_period_start_day);
@@ -446,19 +479,24 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // je Schichtart "besetzt/geplant" statt nur einer Gesamtzahl, da eine
   // Lücke bei Früh sonst hinter genug besetzten Spät-Schichten verschwinden
   // könnte.
-  function shiftSummary(dayShifts: ShiftRow[]): string {
-    if (dayShifts.length === 0) return "Keine Schichten";
+  // Nenner ist bewusst das Maximum aus tatsächlich angelegten Schichten UND
+  // der hinterlegten Mindestbesetzung (Personalbedarf-Sektion, §8) — nicht nur
+  // "wie viele Schichten wurden angelegt". Sonst würde eine Lücke, bei der für
+  // einen Tag noch gar keine Schicht angelegt wurde, in der Zusammenfassung
+  // unsichtbar bleiben ("Früh 1/1" trotz eigentlich benötigter 2 Personen).
+  function shiftSummary(dayShifts: ShiftRow[], dayReqs: StaffingReq[]): string {
     const parts: string[] = [];
     for (const [label, type] of [
       ["Früh", "frueh"],
       ["Spät", "spaet"]
     ] as const) {
       const ofType = dayShifts.filter((s) => s.shift_type === type);
-      if (ofType.length === 0) continue;
+      const required = dayReqs.filter((r) => r.shift_type === type).reduce((sum, r) => sum + r.required_count, 0);
+      if (ofType.length === 0 && required === 0) continue;
       const assigned = ofType.filter((s) => s.employee_id).length;
-      parts.push(`${label} ${assigned}/${ofType.length}`);
+      parts.push(`${label} ${assigned}/${Math.max(ofType.length, required)}`);
     }
-    return parts.join(" · ");
+    return parts.length > 0 ? parts.join(" · ") : "Keine Schichten";
   }
 
   // shiftStartTime prüft bei gesetztem Zeitfenster (from_time/to_time, "nur
@@ -690,7 +728,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             const dayShifts = shifts.filter((s) => s.date === dateStr);
             const specialDay = specialDays.find((sd) => sd.date === dateStr);
             const expanded = expandedShiftDay === dateStr;
-            const summary = shiftSummary(dayShifts);
+            const summary = shiftSummary(dayShifts, dayReqs);
             return (
               <div className="card" key={dateStr}>
                 <button
@@ -1080,6 +1118,54 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             >
               Tage speichern
             </button>
+          </SettingsSection>
+
+          <SettingsSection title="Personalbedarf" subtitle="Mindestbesetzung je Wochentag">
+            <p className="hint" style={{ marginTop: 0 }}>
+              Legt fest, wie viele Personen je Schicht mindestens gebraucht werden — erscheint in
+              der Schichtplanung als "Bedarf" und fließt in die Zusammenfassung der zugeklappten
+              Tageskarten ein (z. B. zeigt "Früh 1/2" eine Lücke, auch wenn dafür noch gar keine
+              zweite Schicht angelegt wurde).
+            </p>
+            {savedServiceDays.map((dow) => (
+              <div key={dow} style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem", marginTop: "0.6rem" }}>
+                <label className="label-caps" style={{ display: "block", marginBottom: "0.4rem" }}>
+                  {DAY_NAMES[dow]}
+                </label>
+                <div className="row-actions" style={{ flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem" }}>
+                    Früh/Küche
+                    <input
+                      type="number"
+                      min={0}
+                      style={{ width: "4rem" }}
+                      value={requirementCount(dow, "frueh", "kueche")}
+                      onChange={(e) => setStaffingRequirement(dow, "frueh", "kueche", Math.max(0, Number(e.target.value)))}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem" }}>
+                    Früh/Service
+                    <input
+                      type="number"
+                      min={0}
+                      style={{ width: "4rem" }}
+                      value={requirementCount(dow, "frueh", "service")}
+                      onChange={(e) => setStaffingRequirement(dow, "frueh", "service", Math.max(0, Number(e.target.value)))}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem" }}>
+                    Spät
+                    <input
+                      type="number"
+                      min={0}
+                      style={{ width: "4rem" }}
+                      value={requirementCount(dow, "spaet", null)}
+                      onChange={(e) => setStaffingRequirement(dow, "spaet", null, Math.max(0, Number(e.target.value)))}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
           </SettingsSection>
 
           <SettingsSection
