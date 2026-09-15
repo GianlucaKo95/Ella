@@ -53,6 +53,13 @@ availability_entries
   day_of_week (bei 'recurring', 0=Mo..6=So), specific_date (bei 'one_time'),
   from_time, to_time, available (bool),
   note, created_at
+  -- unique index (employee_id, specific_date) where kind='one_time'
+  -- (Migration 0022): garantiert auf DB-Ebene, dass pro Mitarbeiter und Tag
+  -- nur eine 'one_time'-Verfügbarkeit existieren kann — zuvor gab es nur die
+  -- Client-Prüfung in setDayAvailability() (Profil.tsx, erst nachschauen ob
+  -- eine Zeile existiert, dann UPDATE statt INSERT), die bei zwei schnell
+  -- hintereinander angeklickten Tagesoptionen theoretisch zwei Zeilen für
+  -- denselben Tag hätte anlegen können.
 
 -- Monatlicher Einreichungs-Stichtag (siehe §9)
 availability_deadlines
