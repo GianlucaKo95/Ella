@@ -53,6 +53,13 @@ availability_entries
   day_of_week (bei 'recurring', 0=Mo..6=So), specific_date (bei 'one_time'),
   from_time, to_time, available (bool),
   note, created_at
+  -- unique index (employee_id, specific_date) where kind='one_time'
+  -- (Migration 0022): garantiert auf DB-Ebene, dass pro Mitarbeiter und Tag
+  -- nur eine 'one_time'-Verfügbarkeit existieren kann — zuvor gab es nur die
+  -- Client-Prüfung in setDayAvailability() (Profil.tsx, erst nachschauen ob
+  -- eine Zeile existiert, dann UPDATE statt INSERT), die bei zwei schnell
+  -- hintereinander angeklickten Tagesoptionen theoretisch zwei Zeilen für
+  -- denselben Tag hätte anlegen können.
 
 -- Monatlicher Einreichungs-Stichtag (siehe §9)
 availability_deadlines
@@ -106,10 +113,15 @@ app_settings                              -- Singleton (genau 1 Zeile, id=true)
   bake_days   (smallint[], 0=Mo..6=So, nicht leer, Default {2,3,4}),
   frueh_days (smallint[], 0=Mo..6=So, leer erlaubt, Default {5,6}) -- steuert nur die UI, siehe §8
 
-notifications_log                         -- In-App-Benachrichtigungen (Glocke)
-  id, type ('shift_published'|'bake_plan_published'|'announcement'),
+notifications_log                         -- In-App-Benachrichtigungen (Glocke) + Web-Push-Protokoll
+  id, type ('shift_published'|'bake_plan_published'|'announcement'|
+            'swap_accepted'|'availability_submitted'|'reminder'),
   target_employee_id, body, read_at (nullable),
-  sent_at, channel ('ha_notify'|'web_push')   -- Kanal vorbereitet für später, aktuell nur in-app angezeigt
+  sent_at, channel ('ha_notify'|'web_push')   -- 'ha_notify' bleibt ungenutzt, siehe §7a
+
+push_subscriptions                        -- Web-Push-Abos, siehe §7a
+  id, employee_id, endpoint (eindeutig, 1 Zeile je Browser/Gerät),
+  p256dh, auth (Push-Verschlüsselung), created_at
 
 shift_swap_requests                       -- Schichttausch
   id, shift_id (-> shifts),
@@ -137,10 +149,80 @@ RLS-Grundregel: `employee` sieht nur eigene Verfügbarkeiten + veröffentlichte 
 
 **Nachtrag (Migration 0019, Migrations-Drift behoben)**: Die beiden Trigger waren in der laufenden Datenbank tatsächlich nie angehängt — die Funktionen existierten, aber ohne `CREATE TRIGGER` dazu, sodass serverseitig überhaupt keine Tages-Validierung mehr griff (nur noch die freiwillige Client-Prüfung in AdminPlanning). Migration 0019 hängt beide Trigger nach (`drop trigger if exists` + `create trigger`, idempotent). Dabei wurde `check_shift_service_day` zusätzlich um eine Sondertage-Ausnahme ergänzt: liegt für `NEW.date` ein `special_days`-Eintrag mit `service_exception = true` vor (§10), gibt die Funktion sofort `NEW` zurück, bevor sie gegen `service_days` prüft — sonst hätte das Nachrüsten des Triggers das Anlegen von Schichten an admin-deklarierten Zusatzterminen (Migration 0016) wieder unterbunden.
 
+## 7a. Echte Push-Benachrichtigungen (Web Push, Migration 0021)
+Löst den in §14 (alte Fassung) offenen Punkt "kein echter Push" ein: neben dem
+In-App-Eintrag in `notifications_log` (Glocke, 60s-Poll) verschickt die App
+jetzt zusätzlich eine echte, VAPID-signierte Web-Push-Nachricht, die auch bei
+geschlossener App/Tab als System-Benachrichtigung ankommt (Voraussetzung:
+HTTPS und ein Browser mit Push-API-Unterstützung — bei Nutzung über die
+Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
+
+- **Abo** (`lib/push.ts`, `push_subscriptions`): pro Browser/Gerät ein Eintrag
+  (`endpoint` eindeutig), angelegt über `enablePush(employeeId)` — fragt die
+  Standard-Browser-Erlaubnis an und registriert das Abo beim Push-Dienst des
+  Browsers (`PushManager.subscribe`) mit dem öffentlichen VAPID-Schlüssel.
+  RLS: jede:r verwaltet ausschließlich das eigene Abo
+  (`employee_id = current_employee_id()`). Jede Person muss das für ihr
+  eigenes Gerät einmalig selbst aktivieren (Browser-Erlaubnis lässt sich nicht
+  im Namen anderer erteilen) — ein "Push-Benachrichtigungen aktivieren"-Button
+  (`usePushToggle`-Hook + `PushToggleButton`-Komponente, geteilt zwischen
+  beiden Stellen) sitzt sowohl in den Admin-Einstellungen (§8, eigene
+  "Benachrichtigungen"-Sektion) als auch im Profil jedes Mitarbeiters — ohne
+  aktiviertes Abo kommt bei dieser Person nichts an, auch nicht bei einer
+  Admin-Erinnerung.
+- **Service Worker** (`src/sw.ts`): vite-plugin-pwa läuft dafür nicht mehr im
+  Standard-Modus (`generateSW`, kein eigener Code möglich), sondern als
+  `injectManifest` mit eigenem SW-Quelltext — der fügt `push`- und
+  `notificationclick`-Handler hinzu (zeigt die System-Benachrichtigung,
+  öffnet/fokussiert beim Antippen die App) und ruft `precacheAndRoute`
+  weiterhin selbst auf. Von `tsc -b` bewusst ausgeschlossen
+  (`tsconfig.json`), da WebWorker- und DOM-Typen sich in einem gemeinsamen
+  Compile-Lauf nicht vertragen; vite/esbuild bauen die Datei unabhängig davon.
+  `self.skipWaiting()` + `clients.claim()` sorgen dabei gleich mit dafür, dass
+  eine neu deployte Version offene Tabs sofort übernimmt, statt (Standard-SW-
+  Verhalten) bis zum manuellen Neustart der App zu warten — `main.tsx`
+  registriert den Worker entsprechend selbst über `virtual:pwa-register`
+  (`registerSW({ immediate: true })`) statt über das vorher injizierte
+  Standard-Skript.
+- **Versand — Edge Function `send-push`** (ersetzt den bisherigen direkten
+  Insert in `notifications_log` aus `notifyEmployees()`): schreibt weiterhin
+  die `notifications_log`-Zeile(n), verschickt zusätzlich die Web-Push-
+  Nachricht an jedes Abo der Ziel-Mitarbeiter (`npm:web-push`, VAPID-Secrets
+  `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`) und räumt bei einer
+  410/404-Antwort (Abo beim Push-Dienst nicht mehr gültig) die betroffene
+  `push_subscriptions`-Zeile gleich mit auf. Berechtigung je Typ:
+  - `swap_accepted`/`availability_submitted` (`notifyAdmins()`, von jeder
+    angemeldeten Person aus aufrufbar): Ziel sind serverseitig **immer** alle
+    aktiven Admins, die vom Client mitgeschickte Mitarbeiterliste wird
+    ignoriert — sonst könnte eine Mitarbeiter-Session darüber beliebige
+    andere Mitarbeiter anschreiben.
+  - `shift_published`/`bake_plan_published`/`announcement`/`reminder`
+    (`notifyEmployees()`): nur Admins, Ziel-Mitarbeiter kommen vom Client.
+  `verify_jwt` bewusst aus (`supabase/config.toml`, gleicher Grund wie bei
+  `reset-password`/`delete-employee`), Berechtigung wird im Code anhand des
+  mitgeschickten Bearer-Tokens geprüft.
+- **Auslöser**: `respondToSwap()` (Home.tsx) benachrichtigt die Admins erst
+  bei "angenommen" (nicht schon bei der ursprünglichen Anfrage) — erst dann
+  wartet der Tausch auf die finale Bestätigung durch einen Admin
+  (`Schichttausch-Bestätigungen`, §10). `submitMonth()` (Profil.tsx)
+  benachrichtigt die Admins direkt beim Einreichen. Admin-seitig gibt es in
+  den Einstellungen (§8) einen "Erinnerung senden"-Button direkt bei der
+  Verfügbarkeits-Stichtag-Übersicht, der an alle dort als "ausstehend"
+  markierten Mitarbeiter eine Erinnerung schickt.
+- **Setup-Voraussetzung**: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+  `VAPID_SUBJECT` müssen als Secrets der Edge Function `send-push` gesetzt
+  sein (Supabase-Dashboard oder `supabase secrets set`) — das kann nicht per
+  Migration/Deploy automatisiert werden, da der private Schlüssel nirgends im
+  Repo landen darf.
+
 ## 8. Admin-Einstellungen (`app_settings`)
 Eine globale, admin-editierbare Konfiguration, gebündelt im eigenen "Einstellungen"-Tab der
 Admin-Planung (§10) — bewusst getrennt von der eigentlichen Schicht-/Backplanung, damit dort nur
-die tagesaktuelle Planungsarbeit sichtbar ist:
+die tagesaktuelle Planungsarbeit sichtbar ist. Der Tab besteht aus einzelnen, standardmäßig
+zugeklappten Abschnitten (`SettingsSection`-Komponente, `AdminPlanning.tsx`) — jeder zeigt
+zugeklappt Titel + eine knappe Zusammenfassung des aktuellen Stands (z. B. "3 Truppen",
+"7 Kuchen hinterlegt"), damit ein Überblick über alle Themen auch ohne Aufklappen möglich ist
+(Feedback: eine einzige lange Karte mit allem offen war unübersichtlich). Themen:
 - **Abrechnungszeitraum** (`billing_period_start_day`): an welchem Tag des Monats der Zeitraum beginnt, der für die „voraussichtlichen Stunden" im Mitarbeiter-Kalender zählt. `1` = klassischer Kalendermonat. Betrifft **ausschließlich** diese Stundenanzeige.
 - **Service-/Back-Tage** (`service_days`/`bake_days`): Wochentags-Toggle, bestimmen welche Wochentage in der Monatsplanung (§10) als Service- bzw. Back-Tage gelten, z. B. um die Back-Tage zu reduzieren, wenn weniger gebacken werden muss. Nur `service_days` bestimmt, für welche Tage ein Mitarbeiter vor dem Einreichen eine Verfügbarkeit braucht (§9) — Back-Tage nicht, da Backeinträge per Truppe (`bake_team_id`) zugewiesen werden, nicht anhand individueller Verfügbarkeit.
 - **Frühschicht-Tage** (`frueh_days`, Migration 0012): Wochentags-Toggle wie `service_days`/`bake_days`, an welchen Tagen normalerweise eine Frühschicht stattfindet (Default nur Sa/So, wie im echten Café-Betrieb — Mo–Fr nur Spätschicht). Kein reines An/Aus: an Tagen außerhalb `frueh_days` zeigt die Schichtplanung (§10) statt der "+ Früh"-Buttons einen "+ Ausnahme: Frühschicht"-Link, der sie für genau diesen Tag freischaltet — Frühschichten "aus der Reihe" bleiben damit weiterhin möglich, ohne dass sie an jedem Tag als gleichwertige Standardoption erscheinen. Leeres Array ist gültig (nie normalerweise, nur Ausnahmen). `staffing_requirements` mit `shift_type = 'frueh'` werden unabhängig davon weiter angezeigt (Bedarfstext).
@@ -156,10 +238,12 @@ die tagesaktuelle Planungsarbeit sichtbar ist:
 
 - **Home** (`/home`): "Heute im Dienst" (alle veröffentlichten Schichten des heutigen Tages, nicht nur die eigene); offene/abgeschickte Schichttausch-Anfragen (eingehend: Annehmen/Ablehnen; ausgehend: Status); "Meine Woche" (rollierende 7-Tage-Ansicht ab heute, je Tag die eigene Schicht oder "frei", mit direktem "Tauschen"-Button je Schicht — keine Notwendigkeit, dafür erst in den Kalender zu wechseln); falls einer Back-Truppe zugeordnet, zusätzlich deren nächste Backtermine; Hinweiskarte, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt ins Profil, dismissable); "Aktuelles" mit den News aus `announcements` (Admin kann dort direkt posten, löst eine Benachrichtigung an alle übrigen aktiven Mitarbeiter aus).
 - **Kalender** (`/kalender`): Apple-Kalender-artige Monatsansicht aller veröffentlichten Schichten. Tage, die laut `app_settings.service_days` kein Service-Tag sind, werden schraffiert/gedimmt dargestellt statt wie ein leerer Tag auszusehen (Detailkarte zeigt dort "Café geschlossen"). Eigene Schicht wird als gefüllter Punkt (Früh) bzw. Ring (Spät) dargestellt, ein eigener Backtermin (eigene Truppe) als rautenförmiger Punkt — alles auf einen Blick ohne den Tag antippen zu müssen; mehr als 3 Kolleg:innen an einem Tag werden als "+N" statt als einzelne Punkte angezeigt. Beim Öffnen ist der heutige Tag bereits ausgewählt. Klick auf einen Tag zeigt die Details inkl. eines "Tauschen"-Buttons auf eigenen Schichten (öffnet eine Kollegen-Auswahl, legt eine `shift_swap_requests`-Zeile an; warnt per `is_colleague_available` dezent, falls der gewählte Kollege laut eigener Angabe an dem Tag nicht kann — keine harte Sperre). Stat-Kacheln zeigen die voraussichtlichen eigenen Stunden und die Anzahl eigener Schichten **im admin-eingestellten Abrechnungszeitraum** (§8), nicht im angezeigten Kalendermonat. ICS-Abo-Link.
-- **Profil** (`/profil`): eigenes Profilbild (Upload/Entfernen, siehe unten), editierbarer Anzeigename (`update_my_name`), die Verfügbarkeits-Karte für den einreichbaren Monat, "Weitere Termine" für Tage außerhalb der normalen Öffnungs-/Backtage.
+- **Profil** (`/profil`): eigenes Profilbild (Upload/Entfernen, siehe unten), editierbarer Anzeigename (`update_my_name`), die Verfügbarkeits-Karte für den einreichbaren Monat.
 - **Backen** (`/backen`, nur sichtbar für Mitarbeiter mit gesetztem `bake_team_id`, eigener Navbar-Eintrag): zeigt ausschließlich die **veröffentlichten** Backeinträge der eigenen Truppe ab heute, als aufklappbare Karten (Datum, Kuchenname, Menge). Aufklappen zeigt die strukturierte Zutatenliste (`cake_recipe_ingredients`, sortiert) sowie `recipe_note` (Backanleitung); ohne strukturierte Zeilen fällt die Karte auf `cake_items.ingredients` (Freitext) zurück. Ohne zugeordnete Truppe zeigt die Route gar nicht in der Navbar, ein direkter Aufruf wäre ohnehin leer.
 
-  **Verfügbarkeit direkt pro Tag statt wiederkehrender Regel + Ausnahmen** (Korrektur nach Feedback: "jeden Freitag anlegen und dann Ausnahmen auswählen" war zu umständig): die Karte listet für den einreichbaren Monat jeden Tag einzeln auf, dessen Wochentag in `service_days` liegt (§8 — bewusst nicht die Back-Tage, s. o.; nur Tage, an denen das Café offen hat, brauchen eine Verfügbarkeitsangabe) — via `monthDaysMatching` (`lib/dates.ts`), mit direktem "kann"/"kann nicht" je Zeile — außer an Tagen mit Frühschicht (`frueh_days`, §8, oder einem Sondertag mit `frueh_exception`, §10): dort vier Optionen **"kann nicht" / "Früh" / "Spät" / "ganztags"**, da "kann" allein an solchen Tagen nicht unterscheidet, ob jemand nur morgens oder nur nachmittags kann (Feedback: "das wäre noch ein Painpoint"). Jede Auswahl schreibt/aktualisiert sofort einen `'one_time'`-Eintrag auf das exakte Datum (`specific_date`) — es gibt keine wiederkehrende Wochentags-Regel (`kind = 'recurring'`) mehr, die im UI editierbar wäre. Vom Admin angelegte Sondertage mit `service_exception` (§10) erscheinen automatisch zusätzlich in dieser Liste, auch wenn ihr Wochentag kein normaler Service-Tag ist (`mergeUniqueDates`, `lib/dates.ts`), samt der Bezeichnung als kleiner Hinweistext unter dem Datum — damit landet eine admin-seitig entschiedene Ausnahme wie ein zusätzlicher Feiertags-Öffnungstag auch wirklich in der Verfügbarkeitsabfrage der Mitarbeiter, statt nur in der Planung sichtbar zu sein. "Weitere Termine" bleibt als separate, kleinere Liste für Tage außerhalb dieses Sets (z. B. eine spontane Frühschicht-Ausnahme an einem sonst schichtfreien Tag, dort bewusst nur die einfachen zwei Optionen) — dieselbe `setDayAvailability()`-Funktion verhindert doppelte Einträge für ein Datum, egal über welchen der beiden Wege es gesetzt wird. Die Datumsauswahl dort ist bewusst `<select>` (Tag/Monat/Jahr) statt `<input type="date">` — dessen natives Kalender-Popup öffnet sich in manchen eingebetteten WebViews (beobachtet in der Home-Assistant-Companion-App) nicht zuverlässig, `<select>` funktioniert dort überall gleich.
+  **Verfügbarkeit direkt pro Tag statt wiederkehrender Regel + Ausnahmen** (Korrektur nach Feedback: "jeden Freitag anlegen und dann Ausnahmen auswählen" war zu umständig): die Karte listet für den einreichbaren Monat jeden Tag einzeln auf, dessen Wochentag in `service_days` liegt (§8 — bewusst nicht die Back-Tage, s. o.; nur Tage, an denen das Café offen hat, brauchen eine Verfügbarkeitsangabe) — via `monthDaysMatching` (`lib/dates.ts`), mit direktem "kann"/"kann nicht" je Zeile — außer an Tagen mit Frühschicht (`frueh_days`, §8, oder einem Sondertag mit `frueh_exception`, §10): dort vier Optionen **"kann nicht" / "Früh" / "Spät" / "ganztags"**, da "kann" allein an solchen Tagen nicht unterscheidet, ob jemand nur morgens oder nur nachmittags kann (Feedback: "das wäre noch ein Painpoint"). Jede Auswahl schreibt/aktualisiert sofort einen `'one_time'`-Eintrag auf das exakte Datum (`specific_date`) — es gibt keine wiederkehrende Wochentags-Regel (`kind = 'recurring'`) mehr, die im UI editierbar wäre. Vom Admin angelegte Sondertage mit `service_exception` **oder** `frueh_exception` (§10) erscheinen automatisch zusätzlich in dieser Liste, auch wenn ihr Wochentag kein normaler Service-Tag ist (`mergeUniqueDates`, `lib/dates.ts`), samt der Bezeichnung als kleiner Hinweistext unter dem Datum — damit landet eine admin-seitig entschiedene Ausnahme wie ein zusätzlicher Feiertags-Öffnungstag auch wirklich in der Verfügbarkeitsabfrage der Mitarbeiter, statt nur in der Planung sichtbar zu sein. Ursprünglich wurde hier nur `service_exception` geprüft — ein Sondertag mit ausschließlich `frueh_exception` (ohne zusätzliche Öffnung) tauchte dadurch nirgends auf, nicht mal in der Admin-Planung selbst (dort dieselbe Lücke in der `svcDays`-Berechnung, §10), sodass der Admin die besondere Frühschicht für diesen Tag gar nicht hätte anlegen können.
+
+  **Kein "Weitere Termine" mehr** (entfernt, nachdem obiger Bug behoben war): gab bis dahin eine zweite, kleinere Liste, über die Mitarbeiter per Tag/Monat/Jahr-Auswahl manuell einen Termin außerhalb der Hauptliste eintragen konnten — gedacht für Tage, von denen der Admin noch nichts weiß. Da es diesen Fall in der Praxis nicht gibt (jeder besondere Tag läuft über die Sondertage-Verwaltung, §10, und landet damit automatisch oben in der Hauptliste), war die zusätzliche, manuell zu bedienende Liste nur verwirrend, ohne einen echten Anwendungsfall abzudecken.
 
   **Bugfix Datums-Umrechnung (`toDateStr`, `lib/dates.ts`)**: Datumsobjekte wurden bislang teils per `date.toISOString().slice(0, 10)` in einen `YYYY-MM-DD`-String umgewandelt. `toISOString()` rechnet dabei intern über UTC — in jeder Zeitzone mit positivem UTC-Offset (z. B. Deutschland, UTC+1/+2) liegt lokale Mitternacht noch im UTC-Vortag, wodurch das Ergebnis systematisch einen Tag zu früh war. Betroffen waren u. a. der beim Antippen eines Kalendertags angezeigte Vortag (Kalender), das Datum, unter dem eine Verfügbarkeitsangabe tatsächlich gespeichert wurde (Profil/Admin-Planung — sichtbar z. B. als Diskrepanz zwischen der Verfügbarkeitsliste im Profil und der Zuweisungs-Anzeige in der Schichtplanung), sowie vereinzelt fehlschlagende Einträge am Monatsersten in der Backplanung. `toDateStr` baut den String jetzt direkt aus den lokalen Datumsteilen (`getFullYear`/`getMonth`/`getDate`) zusammen, ohne den Umweg über UTC. Historische, durch den Bug bereits falsch gespeicherte `availability_entries` wurden einmalig per direkter SQL-Korrektur bereinigt.
 
@@ -169,13 +253,15 @@ die tagesaktuelle Planungsarbeit sichtbar ist:
 
 **Farbschema** (`styles/index.css`, CSS-Variablen in `:root`): an den Logo-Farben ausgerichtet — helles/weißes `--bg`/`--surface` statt des vorherigen warmen Creme-Tons, `--accent` ein aus dem Logo abgeleitetes Türkis/Mint-Grün (`#1b7e71`, kontrastgeprüft ≥4.5:1 für weißen Buttontext) statt des vorherigen Orange. `--mint` (positive/"kann"/"veröffentlicht"-Zustände), `--warn` und `--attention` (Warnungen/"kann nicht") bleiben unverändert, da sie als eigenständige Signalfarben schon vorher vom Haupt-Akzent getrennt waren. `theme_color`/`background_color` in `vite.config.ts` (PWA-Manifest) sowie `index.html` sind entsprechend mitgezogen.
 
+**Mobile-only, kein horizontales Scrollen** (Nutzung findet ausschließlich am Handy statt, kein Desktop-Case): `html, body` erzwingen `overflow-x: hidden` als Sicherheitsnetz, dazu `select`/`input`/`textarea`/`img` mit `max-width: 100%` — kein einzelnes Element darf die Seite je horizontal aufsprengen. Mehrspaltige Datentabellen mit Formularelementen (Schichtzuweisung, Backplan, Mitarbeiterverwaltung in `AdminEmployees.tsx`) bekommen dafür die CSS-Klasse `.stack`: ab `max-width: 700px` lösen sie sich per Media Query in einzelne, gerahmte Zeilen auf statt nebeneinander zu stehen — jede Zelle zeigt ihre Spaltenbeschriftung über ein `data-label`-Attribut vor dem eigentlichen Wert. Auf breiteren Screens bleibt die normale Tabellenform erhalten. Die Verfügbarkeits-Liste in Profil (§9) verzichtet dagegen ganz auf ein `<table>` (`.avail-row`, einfache Flex-Zeile) — die bis zu vierteilige Früh/Spät-Auswahl an Frühschicht-Tagen bricht darüber bei Bedarf einfach in die nächste Zeile um, statt eine Tabellenspalte in die Breite zu zwingen.
+
 ## 10. Admin-Ansicht: Planung / Team
 - **Planung** (`/admin/planung`): drei Tabs (segmentierter Umschalter oben, wie das kann/kann-nicht-Segment in der Verfügbarkeit), bewusst getrennt, damit nicht alles auf einer langen Seite untereinandersteht. Ein Tab-Wechsel scrollt per `useEffect` auf `tab` wieder nach oben — sonst bliebe man z. B. nach dem Scrollen durch einen langen Dienstplan mitten in der neu ausgewählten Backplanung/Einstellungen stehen. Dasselbe gilt global für den Seitenwechsel über die Navbar (`ScrollToTop`-Komponente in `App.tsx`, reagiert auf `useLocation().pathname`) — React Router scrollt beim Routenwechsel nicht von selbst nach oben.
   - **Schichtplanung**: Monatsnavigation (Zustand wird mit dem Backplanung-Tab geteilt, derselbe Monat), "Schichttausch-Bestätigungen" (angenommene Tauschanfragen, Admin bestätigt final → `shifts.employee_id` wird umgeschrieben → Status `confirmed`, oder lehnt ab), "Änderungsprotokoll" gefiltert auf `entity = 'shift'`, eigener "Dienstplan veröffentlichen"-Button (nur Schichten, löst `shift_published`-Benachrichtigungen an die zugewiesenen Mitarbeiter aus), Dienstplan für den **gesamten angezeigten Kalendermonat** (alle Tage laut `service_days`, ergänzt um Sondertage mit Zusatzöffnung, s. u.) mit Zuweisung inkl. Verfügbarkeits-Hinweis; "+ Früh"-Buttons direkt sichtbar an Tagen aus `frueh_days` oder an Sondertagen mit Zusatz-Frühschicht; samstags zusätzlich ein Uhrzeit-Dropdown (13/14 Uhr, §5) neben "+ Spät". Ein Tag mit hinterlegtem Sondertag zeigt dessen Bezeichnung als Badge neben dem Datum (z. B. "🎉 Muttertag").
   - **Backplanung**: dieselbe Monatsnavigation, "Änderungsprotokoll" gefiltert auf `entity = 'bake_entry'`, eigener "Backplan veröffentlichen"-Button (nur Backeinträge; Backeintrag ohne Truppe zeigt zuerst eine Warnung mit der Möglichkeit, trotzdem zu veröffentlichen), Backplan für alle Tage laut `bake_days`. Ein Truppenmitglied, das am selben Tag auch eine Service-Schicht hat, löst eine Kollisions-Warnung aus.
   - **Einstellungen** (§8): Abrechnungszeitraum, Service-/Back-/Frühschicht-Tage, **Sondertage**, Back-Truppen, Kuchen-Stammdaten, Verfügbarkeits-Stichtag — alles, was Konfiguration statt tagesaktueller Planung ist.
 
-  **Sondertage** (`special_days`, Migration `0016_special_days.sql`): der Admin legt einzelne Tage (Feiertage, Muttertag, ...) mit Datum, Bezeichnung und zwei unabhängigen Häkchen an — **"zusätzlich geöffnet"** (`service_exception`, ergänzt den Tag um einen Dienstplan-Eintrag auch an einem sonst schichtfreien Wochentag) und **"zusätzlich Frühschicht"** (`frueh_exception`, schaltet die "+ Früh"-Buttons an diesem Tag frei, unabhängig von `frueh_days`). Ersetzt die frühere, rein clientseitige und nicht persistierte "+ Ausnahme: Frühschicht"-Freischaltung — der entscheidende Unterschied: ein Sondertag ist in der DB hinterlegt und taucht deshalb automatisch auch in der Verfügbarkeitsabfrage der Mitarbeiter auf (§9), statt nur admin-seitig für die aktuelle Sitzung sichtbar zu sein. RLS: Lesen für alle angemeldeten Mitarbeiter (Profil braucht das), Schreiben admin-exklusiv (gleiches Muster wie `bake_teams`/`cake_items`).
+  **Sondertage** (`special_days`, Migration `0016_special_days.sql`): der Admin legt einzelne Tage (Feiertage, Muttertag, ...) mit Datum, Bezeichnung und zwei unabhängigen Häkchen an — **"zusätzlich geöffnet"** (`service_exception`, ergänzt den Tag um einen Dienstplan-Eintrag auch an einem sonst schichtfreien Wochentag) und **"zusätzlich Frühschicht"** (`frueh_exception`, schaltet die "+ Früh"-Buttons an diesem Tag frei, unabhängig von `frueh_days`). Ersetzt die frühere, rein clientseitige und nicht persistierte "+ Ausnahme: Frühschicht"-Freischaltung — der entscheidende Unterschied: ein Sondertag ist in der DB hinterlegt und taucht deshalb automatisch auch in der Verfügbarkeitsabfrage der Mitarbeiter auf (§9), statt nur admin-seitig für die aktuelle Sitzung sichtbar zu sein. Die Tageskarte in der Schichtplanung selbst (`svcDays`) erscheint für jeden Sondertag mit `service_exception` **oder** `frueh_exception` — ein Sondertag mit ausschließlich `frueh_exception` braucht ebenfalls eine Karte, sonst gäbe es dort gar keinen "+ Früh"-Button zum Anlegen der besonderen Schicht (ursprünglich fälschlich nur bei `service_exception`, siehe §9). RLS: Lesen für alle angemeldeten Mitarbeiter (Profil braucht das), Schreiben admin-exklusiv (gleiches Muster wie `bake_teams`/`cake_items`). Die Datumsauswahl beim Anlegen ist bewusst `<select>` (Tag/Monat/Jahr) statt `<input type="date">` — dessen natives Kalender-Popup öffnet sich in manchen eingebetteten WebViews (beobachtet in der Home-Assistant-Companion-App) nicht zuverlässig, `<select>` funktioniert dort überall gleich.
 
   Dienstplan- und Backplan-Veröffentlichung sind seit dieser Trennung bewusst **unabhängig** voneinander (vorher ein gemeinsamer Button für beides).
 - **Team** (`/admin/mitarbeiter`): Mitarbeiterliste (Rolle, aktiv, Back-Truppe einzeln änderbar), "Passwort zurücksetzen" je Mitarbeiter mit bestehendem Login (§12). Mitarbeiter **ohne** Login zeigen stattdessen zwei Einladungs-Buttons: **"Einladen (WhatsApp)"** öffnet `https://wa.me/?text=…` mit vorausgefülltem, mehrzeiligem Einladungstext (Begrüßung, nummerierte Schritte, App-Link) — ohne Telefonnummer, die Admin-Person wählt den Kontakt selbst in WhatsApp aus (kein `phone`-Feld in `employees` nötig); **"Text kopieren"** legt denselben Text in die Zwischenablage (mit `prompt()`-Fallback, falls `navigator.clipboard` im aktuellen Kontext nicht verfügbar ist, z. B. kein HTTPS) für Versand über einen anderen Kanal. Der Link im Text ist die feste Konstante `APP_URL = "https://ella.heimdns.de"` (geplante Produktions-Domain) statt `window.location.origin` — bewusst hart codiert, damit der Einladungstext immer die öffentlich erreichbare Adresse nennt, unabhängig davon, von welcher internen URL aus die Admin-Person die App gerade selbst aufruft.
@@ -187,7 +273,7 @@ die tagesaktuelle Planungsarbeit sichtbar ist:
 
 **"Eingereicht" sperrt nichts, erst "veröffentlicht" tut es:** weder die Buttons in der Tagesliste (§9) noch die RLS-Policy auf `availability_entries` prüfen `submitted_at` — ein Mitarbeiter kann seine Angaben nach dem Einreichen und auch nach dem Stichtag beliebig ändern. Die Admin-Planung liest bei jedem Laden live die aktuellen `availability_entries`, es gibt keinen Schnappschuss zum Zeitpunkt des Einreichens — "Einreichen" bedeutet nur "vollständig, bereit zur Planung", nicht "eingefroren". Die Karte in Profil weist nach dem Einreichen explizit darauf hin, dass Änderungen weiterhin möglich sind.
 
-Erst mit der **Veröffentlichung des Dienstplans** (`shifts.status = 'published'` für den jeweiligen Tag) wird die Verfügbarkeit für genau diesen Tag gesperrt — Anforderung: eine Person soll nicht nach der Zuweisung noch unbemerkt "kann nicht" eintragen können, ohne dass sich das im bereits veröffentlichten Plan widerspiegelt. Migration `0017_lock_availability_after_publish.sql` erweitert die `availability_own_write`-Policy: ein `'one_time'`-Eintrag (mit `specific_date`) lässt sich nicht mehr schreiben/löschen, sobald für dieses Datum irgendeine veröffentlichte Schicht existiert — geprüft direkt per `EXISTS`-Subquery gegen `shifts`, ohne eigene Helper-Funktion (`shifts.date` ist für veröffentlichte Zeilen ohnehin für jede angemeldete Person lesbar, siehe `shifts_select`). `'recurring'`-Einträge (kein `specific_date`, seit der Tagesauswahl-Umstellung ohnehin nicht mehr im UI erzeugt) bleiben von der Sperre unberührt. Die Sperre gilt serverseitig, nicht nur im UI — Profil zeigt gesperrte Tage nur noch als reinen Text mit 🔒-Symbol statt anklickbarer Buttons, sowohl in der Haupt-Tagesliste als auch bei "Weitere Termine". Ein bereits veröffentlichter, aber von der Person noch nicht ausgefüllter Tag zählt beim Einreichen nicht mehr als "offen" — sonst wäre ein vollständiges Einreichen für diesen Monat gar nicht mehr möglich.
+Erst mit der **Veröffentlichung des Dienstplans** (`shifts.status = 'published'` für den jeweiligen Tag) wird die Verfügbarkeit für genau diesen Tag gesperrt — Anforderung: eine Person soll nicht nach der Zuweisung noch unbemerkt "kann nicht" eintragen können, ohne dass sich das im bereits veröffentlichten Plan widerspiegelt. Migration `0017_lock_availability_after_publish.sql` erweitert die `availability_own_write`-Policy: ein `'one_time'`-Eintrag (mit `specific_date`) lässt sich nicht mehr schreiben/löschen, sobald für dieses Datum irgendeine veröffentlichte Schicht existiert — geprüft direkt per `EXISTS`-Subquery gegen `shifts`, ohne eigene Helper-Funktion (`shifts.date` ist für veröffentlichte Zeilen ohnehin für jede angemeldete Person lesbar, siehe `shifts_select`). `'recurring'`-Einträge (kein `specific_date`, seit der Tagesauswahl-Umstellung ohnehin nicht mehr im UI erzeugt) bleiben von der Sperre unberührt. Die Sperre gilt serverseitig, nicht nur im UI — Profil zeigt gesperrte Tage in der Tagesliste nur noch als reinen Text mit 🔒-Symbol statt anklickbarer Buttons. Ein bereits veröffentlichter, aber von der Person noch nicht ausgefüllter Tag zählt beim Einreichen nicht mehr als "offen" — sonst wäre ein vollständiges Einreichen für diesen Monat gar nicht mehr möglich.
 
 ## 12. Login mit Name + Passwort, ohne E-Mail (wie bei Wizzo)
 Login-Bildschirm ist ein normales Formular mit zwei Textfeldern, Name und Passwort — kein
@@ -220,7 +306,7 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 
 ## 14. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
-- **Benachrichtigungen ohne externen Kanal**: `notifications_log` wird jetzt befüllt und in der App angezeigt, aber es gibt noch keinen echten Push (HA-Notify/Web-Push) außerhalb der App — nur die Glocke beim nächsten App-Öffnen/Poll (60s).
+- **Kein Fallback ohne Push-API**: Ältere/eingebettete WebViews ohne `PushManager`-Unterstützung zeigen entsprechend "wird nicht unterstützt" und bleiben auf die In-App-Glocke (60s-Poll) beschränkt — es gibt aktuell keinen zweiten Kanal (z. B. `ha_notify` über die Supervisor-API) als Ersatz dafür.
 - **Schichttausch-Eignungsprüfung nur als Hinweis**: Beim Anbieten wird jetzt per `is_colleague_available` gewarnt, falls der Kollege laut eigener Angabe an dem Tag nicht kann (§6) — es wird aber weiterhin nicht geprüft, ob er an dem Tag bereits selbst eine Schicht hat; das sieht der Admin erst bei der finalen Bestätigung.
 - **Kein "Abmelden ohne Ersatz"**: Ein Mitarbeiter kann eine Schicht nur per Tausch an einen konkreten Kollegen abgeben, nicht allgemein als "kann ich nicht übernehmen" ohne selbst einen Ersatz zu finden (bewusst zurückgestellte Idee aus der Workshop-Runde).
 - **ICS-Link ohne Auth-Token**: Die Edge Function nimmt aktuell jede `employee_id` entgegen, ohne zu prüfen, ob der Aufrufer berechtigt ist — sollte vor Launch durch einen separaten, nicht erratbaren `calendar_token` ersetzt werden.

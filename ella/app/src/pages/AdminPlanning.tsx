@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchAppSettings, notifyEmployees, supabase } from "../lib/supabase";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { fetchAppSettings, notifyEmployees, supabase, type Employee } from "../lib/supabase";
+import { usePushToggle } from "../lib/push";
+import { PushToggleButton } from "../components/PushToggleButton";
 import {
   monthDaysMatching,
   mergeUniqueDates,
@@ -83,7 +85,39 @@ type PendingSwap = {
 };
 type Tab = "schicht" | "back" | "einstellungen";
 
-export function AdminPlanning() {
+// Aufklappbarer Abschnitt für den Einstellungen-Tab (war vorher eine einzige
+// lange Karte mit allem offen untereinander — Feedback: "unübersichtlich").
+// Zugeklappt zeigt jeder Abschnitt Titel + eine kurze Zusammenfassung des
+// aktuellen Stands, damit ein Überblick auch ohne Aufklappen möglich ist.
+// Gleiches Auf-/Zuklapp-Muster wie die einzelnen Kuchen weiter unten.
+function SettingsSection({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card">
+      <button
+        type="button"
+        className="ghost"
+        style={{
+          width: "100%",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          textAlign: "left"
+        }}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+          <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>{title}</span>
+          {subtitle && <span style={{ fontWeight: 400, fontSize: "0.74rem", color: "var(--ink-soft)" }}>{subtitle}</span>}
+        </span>
+        <span style={{ color: "var(--ink-soft)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <div style={{ marginTop: "0.9rem" }}>{children}</div>}
+    </div>
+  );
+}
+
+export function AdminPlanning({ employee }: { employee: Employee }) {
   const [tab, setTab] = useState<Tab>("schicht");
 
   // Beim Tab-Wechsel wieder nach oben springen, statt mitten in der neuen
@@ -141,6 +175,9 @@ export function AdminPlanning() {
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const push = usePushToggle(employee.id);
+  const [reminderSending, setReminderSending] = useState(false);
+  const [reminderSent, setReminderSent] = useState(false);
   const dayRulesDirty =
     serviceDays.join() !== savedServiceDays.join() ||
     bakeDays.join() !== savedBakeDays.join() ||
@@ -156,12 +193,15 @@ export function AdminPlanning() {
   // Wochentage überhaupt Service- bzw. Back-Tage sind, kommt aus den zuletzt
   // GESPEICHERTEN Einstellungen — ein unsaved Toggle ändert die Planung unten
   // erst nach "Tage speichern" (siehe dayRulesDirty-Hinweis im UI). Sondertage
-  // mit "zusätzlich geöffnet" ergänzen einzelne Zusatztermine unabhängig vom
-  // Wochentag (z. B. ein sonst schichtfreier Montag für Muttertag).
+  // mit "zusätzlich geöffnet" ODER "zusätzlich Frühschicht" ergänzen einzelne
+  // Zusatztermine unabhängig vom Wochentag (z. B. ein sonst schichtfreier
+  // Montag für Muttertag) — auch ein reiner frueh_exception-Sondertag braucht
+  // eine Tageskarte, sonst gäbe es dort gar keinen "+ Früh"-Button zum
+  // Anlegen der besonderen Schicht.
   const svcDays = useMemo(() => {
     const base = monthDaysMatching(planMonth, savedServiceDays);
     const extra = specialDays
-      .filter((sd) => sd.service_exception)
+      .filter((sd) => sd.service_exception || sd.frueh_exception)
       .map((sd) => parseDateStr(sd.date))
       .filter((d) => d.getFullYear() === planMonth.getFullYear() && d.getMonth() === planMonth.getMonth());
     return mergeUniqueDates(base, extra);
@@ -369,6 +409,22 @@ export function AdminPlanning() {
       setFruehDaysState(s.frueh_days);
     });
   }, []);
+
+  async function sendReminder() {
+    const missingIds = employees
+      .filter((e) => !submissions.some((s) => s.employee_id === e.id))
+      .map((e) => e.id);
+    if (missingIds.length === 0) return;
+    setReminderSending(true);
+    setReminderSent(false);
+    await notifyEmployees(
+      missingIds,
+      "reminder",
+      `Bitte gib deine Verfügbarkeit für ${monthLabel(nextMonth)} ab${deadline ? ` (Stichtag ${new Date(deadline).toLocaleDateString("de-DE")})` : ""}.`
+    );
+    setReminderSending(false);
+    setReminderSent(true);
+  }
 
   useEffect(() => {
     loadAll();
@@ -621,7 +677,7 @@ export function AdminPlanning() {
                       .join(", ")}
                   </p>
                 )}
-                <table>
+                <table className="stack">
                   <thead>
                     <tr>
                       <th>Schicht</th>
@@ -634,12 +690,12 @@ export function AdminPlanning() {
                   <tbody>
                     {dayShifts.map((s) => (
                       <tr key={s.id}>
-                        <td>{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
-                        <td>{s.role_tag ?? "—"}</td>
-                        <td>
+                        <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
+                        <td data-label="Rolle">{s.role_tag ?? "—"}</td>
+                        <td data-label="Zeit">
                           {s.start_time}–{s.end_time}
                         </td>
-                        <td>
+                        <td data-label="Mitarbeiter">
                           <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
                             <option value="">– wählen –</option>
                             {employees.map((emp) => (
@@ -649,7 +705,7 @@ export function AdminPlanning() {
                             ))}
                           </select>
                         </td>
-                        <td>
+                        <td data-label="">
                           <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
                         </td>
                       </tr>
@@ -742,7 +798,7 @@ export function AdminPlanning() {
                 <h4>
                   {DAY_NAMES[dow]}, {dateStr}
                 </h4>
-                <table>
+                <table className="stack">
                   <thead>
                     <tr>
                       <th>Kuchen</th>
@@ -756,7 +812,7 @@ export function AdminPlanning() {
                       const collisions = collisionsFor(dateStr, b.bake_team_id);
                       return (
                         <tr key={b.id}>
-                          <td>
+                          <td data-label="Kuchen">
                             <select
                               value={b.cake_item_id}
                               onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
@@ -768,7 +824,7 @@ export function AdminPlanning() {
                               ))}
                             </select>
                           </td>
-                          <td>
+                          <td data-label="Menge">
                             <input
                               type="number"
                               value={b.quantity}
@@ -777,7 +833,7 @@ export function AdminPlanning() {
                               onChange={(e) => updateBakeEntry(b.id, { quantity: Number(e.target.value) })}
                             />
                           </td>
-                          <td>
+                          <td data-label="Truppe">
                             <select
                               value={b.bake_team_id ?? ""}
                               onChange={(e) => updateBakeEntry(b.id, { bake_team_id: e.target.value || null })}
@@ -796,7 +852,7 @@ export function AdminPlanning() {
                               </p>
                             )}
                           </td>
-                          <td>
+                          <td data-label="">
                             <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
                           </td>
                         </tr>
@@ -813,8 +869,30 @@ export function AdminPlanning() {
 
       {tab === "einstellungen" && (
         <>
-          <div className="card">
-            <h3>Einstellungen</h3>
+          <SettingsSection
+            title="Benachrichtigungen"
+            subtitle={
+              push.state === "subscribed"
+                ? "Push-Benachrichtigungen aktiv auf diesem Gerät"
+                : push.state === "unsupported"
+                ? "Von diesem Browser nicht unterstützt"
+                : push.state === "denied"
+                ? "Erlaubnis wurde verweigert"
+                : "Push-Benachrichtigungen nicht aktiviert"
+            }
+          >
+            <p className="hint" style={{ marginTop: 0 }}>
+              Aktiviert für dieses Gerät/diesen Browser eine echte Push-Benachrichtigung (auch außerhalb der App),
+              sobald ein angenommener Schichttausch auf Bestätigung wartet oder jemand seine Verfügbarkeit
+              eingereicht hat.
+            </p>
+            <PushToggleButton state={push.state} busy={push.busy} error={push.error} onToggle={push.toggle} />
+          </SettingsSection>
+
+          <SettingsSection
+            title="Abrechnungszeitraum"
+            subtitle={`Beginnt am ${billingStartDay}. · aktuell ${formatDayMonth(previewPeriod.start)}–${formatDayMonth(previewPeriod.end)}`}
+          >
             <div className="field">
               <label>Abrechnungszeitraum beginnt am Tag des Monats</label>
               <div className="row-actions">
@@ -835,13 +913,17 @@ export function AdminPlanning() {
                 </button>
               </div>
               <p className="hint">
-                Aktueller Zeitraum: {formatDayMonth(previewPeriod.start)}–{formatDayMonth(previewPeriod.end)} ·
-                gilt für die "voraussichtlichen Stunden" im Kalender jedes Mitarbeiters. 1 = klassischer
+                Gilt für die "voraussichtlichen Stunden" im Kalender jedes Mitarbeiters. 1 = klassischer
                 Kalendermonat.
               </p>
             </div>
+          </SettingsSection>
 
-            <div className="field" style={{ marginTop: "1rem" }}>
+          <SettingsSection
+            title="Öffnungs- & Back-Tage"
+            subtitle={`Service: ${savedServiceDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")} · Backen: ${savedBakeDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")} · Früh: ${savedFruehDays.length > 0 ? savedFruehDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/") : "nie normalerweise"}`}
+          >
+            <div className="field">
               <label>An diesen Tagen ist Service (Dienstplan)</label>
               <div className="day-toggle-row">
                 {DAY_NAMES.map((name, idx) => (
@@ -930,10 +1012,12 @@ export function AdminPlanning() {
             >
               Tage speichern
             </button>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Sondertage</h3>
+          <SettingsSection
+            title="Sondertage"
+            subtitle={specialDays.length === 0 ? "Keine angelegt" : `${specialDays.length} Termin${specialDays.length === 1 ? "" : "e"}`}
+          >
             <p className="hint" style={{ marginTop: 0 }}>
               Für Feiertage, Muttertag & Co., an denen zusätzlich geöffnet ist und/oder zusätzlich eine
               Frühschicht angeboten wird — der Tag erscheint dann automatisch im Dienstplan oben und in der
@@ -1010,10 +1094,12 @@ export function AdminPlanning() {
                 </li>
               ))}
             </ul>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Back-Truppen</h3>
+          <SettingsSection
+            title="Back-Truppen"
+            subtitle={bakeTeams.length === 0 ? "Keine angelegt" : `${bakeTeams.length} Truppe${bakeTeams.length === 1 ? "" : "n"}`}
+          >
             {bakeTeams.map((t) => {
               const members = employees.filter((e) => e.bake_team_id === t.id);
               const candidates = employees.filter((e) => e.bake_team_id !== t.id);
@@ -1073,10 +1159,12 @@ export function AdminPlanning() {
               />
               <button className="ghost" onClick={addBakeTeam}>+ Truppe anlegen</button>
             </p>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Kuchen</h3>
+          <SettingsSection
+            title="Kuchen"
+            subtitle={cakeItems.length === 0 ? "Keine hinterlegt" : `${cakeItems.length} Kuchen hinterlegt`}
+          >
             <p style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
               Nur hier hinterlegte Kuchen stehen bei der Backplanung zur Auswahl. Zum Bearbeiten antippen.
             </p>
@@ -1257,14 +1345,34 @@ export function AdminPlanning() {
               </p>
               <button className="ghost" onClick={addCakeItem}>+ Kuchen anlegen</button>
             </div>
-          </div>
+          </SettingsSection>
 
-          <div className="card">
-            <h3>Verfügbarkeits-Stichtag für {monthLabel(nextMonth)}</h3>
+          <SettingsSection
+            title={`Verfügbarkeits-Stichtag für ${monthLabel(nextMonth)}`}
+            subtitle={`${submissions.length}/${employees.length} eingereicht${deadline ? ` · Stichtag ${new Date(deadline).toLocaleDateString("de-DE")}` : ""}`}
+          >
             <p>
               <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />{" "}
               <button className="ghost" onClick={saveDeadline}>Stichtag speichern</button>
             </p>
+            {(() => {
+              const missing = employees.filter((e) => !submissions.some((s) => s.employee_id === e.id));
+              if (missing.length === 0) return null;
+              return (
+                <p>
+                  <button className="ghost" disabled={reminderSending} onClick={sendReminder}>
+                    {reminderSending
+                      ? "Sende…"
+                      : `Erinnerung an ${missing.length} Ausstehende senden`}
+                  </button>
+                  {reminderSent && (
+                    <span className="hint" style={{ marginLeft: "0.5rem" }}>
+                      Gesendet ✅
+                    </span>
+                  )}
+                </p>
+              );
+            })()}
             <table>
               <thead>
                 <tr>
@@ -1292,7 +1400,7 @@ export function AdminPlanning() {
                 })}
               </tbody>
             </table>
-          </div>
+          </SettingsSection>
         </>
       )}
     </div>

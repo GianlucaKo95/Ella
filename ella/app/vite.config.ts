@@ -8,6 +8,18 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // injectManifest statt generateSW: eigener Service-Worker-Quellcode
+      // (src/sw.ts) nötig, damit ein `push`-Event-Handler für echte Web-Push-
+      // Benachrichtigungen möglich ist — generateSW erlaubt keinen eigenen
+      // Event-Listener-Code. injectRegister aus, da main.tsx die Registrierung
+      // jetzt selbst über `virtual:pwa-register` übernimmt (nötig, damit eine
+      // neu ausgelieferte Version automatisch nachgeladen wird, statt bis zum
+      // manuellen Neustart der App im alten, zwischengespeicherten Stand
+      // hängen zu bleiben).
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectRegister: false,
       manifest: {
         name: "Ella",
         short_name: "Ella",

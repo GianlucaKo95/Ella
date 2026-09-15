@@ -208,7 +208,13 @@ export async function fetchAppSettings(): Promise<AppSettings> {
 
 export type AppNotification = {
   id: string;
-  type: "shift_published" | "bake_plan_published" | "announcement";
+  type:
+    | "shift_published"
+    | "bake_plan_published"
+    | "announcement"
+    | "swap_accepted"
+    | "availability_submitted"
+    | "reminder";
   body: string;
   sent_at: string;
   read_at: string | null;
@@ -236,22 +242,41 @@ export async function markAllNotificationsRead(employeeId: string) {
     .is("read_at", null);
 }
 
-// Legt für jeden übergebenen Mitarbeiter eine Benachrichtigung an (z.B. nach
-// Veröffentlichen eines Plans oder einer neuen Ankündigung). channel ist
-// vorbereitet für einen künftigen externen Kanal (HA-Notify/Web-Push), wird
-// aktuell aber nur in-app angezeigt.
+// Legt für jeden übergebenen Mitarbeiter eine Benachrichtigung an (z. B. nach
+// Veröffentlichen eines Plans oder einer neuen Ankündigung) UND verschickt an
+// jedes Gerät mit aktivem Push-Abo (siehe lib/push.ts) eine echte Web-Push-
+// Nachricht — läuft über die Edge Function `send-push`, da normale
+// Mitarbeiter-Sessions nicht direkt in notifications_log schreiben dürfen
+// (nur Admins, siehe RLS) und der eigentliche Versand ohnehin serverseitig
+// (VAPID-Signatur) passieren muss. Nur für admin-initiierte Typen gedacht —
+// für "ein Mitarbeiter löst eine Benachrichtigung an alle Admins aus" siehe
+// notifyAdmins().
 export async function notifyEmployees(
   employeeIds: string[],
   type: AppNotification["type"],
   body: string
-) {
-  if (employeeIds.length === 0) return;
-  await supabase.from("notifications_log").insert(
-    employeeIds.map((target_employee_id) => ({
-      type,
-      target_employee_id,
-      body,
-      channel: "web_push"
-    }))
-  );
+): Promise<string | null> {
+  if (employeeIds.length === 0) return null;
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session) return "Nicht angemeldet";
+  const result = await callEdgeFunction("send-push", { employeeIds, type, body }, session.access_token);
+  return result.ok ? null : result.error || "Benachrichtigung konnte nicht gesendet werden";
+}
+
+// Von einer normalen Mitarbeiter-Session aus alle Admins benachrichtigen
+// (Schichttausch wartet auf Bestätigung, Verfügbarkeit eingereicht) — welche
+// Mitarbeiter das sind, bestimmt ausschließlich die Edge Function serverseitig,
+// damit niemand über diesen Weg beliebige andere Mitarbeiter benachrichtigen kann.
+export async function notifyAdmins(
+  type: Extract<AppNotification["type"], "swap_accepted" | "availability_submitted">,
+  body: string
+): Promise<string | null> {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session) return "Nicht angemeldet";
+  const result = await callEdgeFunction("send-push", { type, body }, session.access_token);
+  return result.ok ? null : result.error || "Benachrichtigung konnte nicht gesendet werden";
 }

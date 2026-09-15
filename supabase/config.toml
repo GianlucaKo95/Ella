@@ -16,3 +16,6 @@ verify_jwt = false
 
 [functions.delete-employee]
 verify_jwt = false
+
+[functions.send-push]
+verify_jwt = false

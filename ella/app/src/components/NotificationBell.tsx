@@ -9,8 +9,10 @@ import {
 import { IconBell } from "./icons";
 
 // Fragt periodisch (alle 60s) sowie beim Öffnen des Panels die eigenen
-// Benachrichtigungen ab. Ein echtes Push/Realtime-Update ist bewusst nicht
-// Teil dieser ersten Version (siehe ARCHITECTURE.md, offene Fragen).
+// Benachrichtigungen ab, für die In-App-Glocke selbst reicht das. Eine echte
+// Zustellung außerhalb der offenen App läuft separat über Web Push
+// (lib/push.ts, Edge Function send-push) — diese Liste liest nur das dabei
+// gleich mitgeschriebene notifications_log, kein eigener Push-Empfang hier.
 export function NotificationBell({ employee }: { employee: Employee }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
