@@ -858,7 +858,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                                   ))}
                                 </optgroup>
                                 {adminEmployees.length > 0 && (
-                                  <optgroup label="Admins (im Notfall)">
+                                  <optgroup label="Admins">
                                     {adminEmployees.map((emp) => (
                                       <option key={emp.id} value={emp.id}>
                                         {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
