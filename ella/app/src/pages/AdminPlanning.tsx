@@ -441,6 +441,26 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planMonth, savedServiceDays, savedBakeDays]);
 
+  // Kurzfassung für die zugeklappte Tageskarte — getrennt nach Früh/Spät
+  // (Feedback: "auf den ersten Blick einsehbar, ob da noch Leute fehlen"),
+  // je Schichtart "besetzt/geplant" statt nur einer Gesamtzahl, da eine
+  // Lücke bei Früh sonst hinter genug besetzten Spät-Schichten verschwinden
+  // könnte.
+  function shiftSummary(dayShifts: ShiftRow[]): string {
+    if (dayShifts.length === 0) return "Keine Schichten";
+    const parts: string[] = [];
+    for (const [label, type] of [
+      ["Früh", "frueh"],
+      ["Spät", "spaet"]
+    ] as const) {
+      const ofType = dayShifts.filter((s) => s.shift_type === type);
+      if (ofType.length === 0) continue;
+      const assigned = ofType.filter((s) => s.employee_id).length;
+      parts.push(`${label} ${assigned}/${ofType.length}`);
+    }
+    return parts.join(" · ");
+  }
+
   // shiftStartTime prüft bei gesetztem Zeitfenster (from_time/to_time, "nur
   // Früh"/"nur Spät" aus dem Profil) zusätzlich, ob die konkrete Schicht in
   // dieses Fenster fällt — ohne Fenster (ganztags) zählt die Verfügbarkeit
@@ -670,7 +690,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             const dayShifts = shifts.filter((s) => s.date === dateStr);
             const specialDay = specialDays.find((sd) => sd.date === dateStr);
             const expanded = expandedShiftDay === dateStr;
-            const unassignedCount = dayShifts.filter((s) => !s.employee_id).length;
+            const summary = shiftSummary(dayShifts);
             return (
               <div className="card" key={dateStr}>
                 <button
@@ -688,13 +708,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                         </span>
                       )}
                     </span>
-                    <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>
-                      {dayShifts.length === 0
-                        ? "Keine Schichten"
-                        : `${dayShifts.length} Schicht${dayShifts.length === 1 ? "" : "en"}${
-                            unassignedCount > 0 ? ` · ${unassignedCount} unbesetzt` : " · alle besetzt"
-                          }`}
-                    </span>
+                    <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>{summary}</span>
                   </span>
                   <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
                 </button>
