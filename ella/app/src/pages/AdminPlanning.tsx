@@ -19,7 +19,7 @@ import {
   timeToMinutes,
   addDays,
   addMonths,
-  monthStartOf,
+  defaultPlanningMonth,
   weekStartOf,
   addWeeks,
   weekDaysMatching,
@@ -132,7 +132,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     window.scrollTo(0, 0);
   }, [tab]);
 
-  const [planMonth, setPlanMonth] = useState(() => monthStartOf(new Date()));
+  const [planMonth, setPlanMonth] = useState(() => defaultPlanningMonth(new Date()));
   // Backplanung läuft wochenweise statt über den ganzen Monat — eigener,
   // unabhängiger Navigationszustand (siehe bkDays weiter unten).
   const [planWeek, setPlanWeek] = useState(() => weekStartOf(new Date()));
@@ -702,7 +702,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
           </button>
           <h3 style={{ margin: 0 }}>{monthLabel(planMonth)}</h3>
           <div className="nav-btns">
-            <button className="ghost" onClick={() => setPlanMonth(monthStartOf(new Date()))}>
+            <button className="ghost" onClick={() => setPlanMonth(defaultPlanningMonth(new Date()))}>
               Heute
             </button>
             <button className="ghost" onClick={() => setPlanMonth((m) => addMonths(m, 1))}>
