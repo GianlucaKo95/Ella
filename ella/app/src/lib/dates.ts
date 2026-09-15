@@ -108,6 +108,17 @@ export function addMonths(monthStart: Date, delta: number): Date {
   return new Date(monthStart.getFullYear(), monthStart.getMonth() + delta, 1);
 }
 
+// Default-Monat für die Schichtplanung: ab dem ersten Samstag eines Monats
+// (Beginn des ersten Wochenendes) gilt der Monat als "schon dran" — der
+// Planungsscreen soll ihn dann nicht mehr als Default zeigen, sondern direkt
+// den Folgemonat (Feedback: "soll dieser Monat nicht mehr im Planungsscreen
+// auftauchen sondern dann der Folgemonat").
+export function defaultPlanningMonth(today: Date): Date {
+  const monthStart = monthStartOf(today);
+  const firstSaturday = addDays(monthStart, (5 - isoDayOfWeek(monthStart) + 7) % 7);
+  return today >= firstSaturday ? addMonths(monthStart, 1) : monthStart;
+}
+
 // 6 Wochen (42 Tage), Mo..So, inkl. führender/nachfolgender Tage aus
 // Nachbarmonaten — für eine Apple-Kalender-artige Monatsansicht
 export function monthGrid(monthStart: Date): Date[] {
