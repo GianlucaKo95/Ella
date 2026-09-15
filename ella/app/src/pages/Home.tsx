@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, notifyEmployees, notifyAdmins, type Employee } from "../lib/supabase";
+import { supabase, notifyEmployees, notifyAdmins, uploadAnnouncementImage, type Employee } from "../lib/supabase";
 import { toDateStr, addDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
 
 type ShiftRow = {
@@ -21,6 +21,7 @@ type BakeRow = {
 type Announcement = {
   id: string;
   body: string;
+  image_url: string | null;
   created_at: string;
   employees: { name: string } | null;
 };
@@ -45,6 +46,9 @@ export function Home({ employee }: { employee: Employee }) {
   const [needsAvailability, setNeedsAvailability] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [newAnnouncement, setNewAnnouncement] = useState("");
+  const [newAnnouncementImage, setNewAnnouncementImage] = useState<File | null>(null);
+  const [postingAnnouncement, setPostingAnnouncement] = useState(false);
+  const announcementImageInputRef = useRef<HTMLInputElement>(null);
   const [colleagues, setColleagues] = useState<{ id: string; name: string }[]>([]);
   const [swapRequestedShiftIds, setSwapRequestedShiftIds] = useState<Set<string>>(new Set());
   const [weekSwapPickerFor, setWeekSwapPickerFor] = useState<string | null>(null);
@@ -101,7 +105,7 @@ export function Home({ employee }: { employee: Employee }) {
 
     const announcementsPromise = supabase
       .from("announcements")
-      .select("id,body,created_at,employees(name)")
+      .select("id,body,image_url,created_at,employees(name)")
       .order("created_at", { ascending: false })
       .limit(10);
 
@@ -149,7 +153,10 @@ export function Home({ employee }: { employee: Employee }) {
     setShifts((shiftsRes.data as ShiftRow[]) || []);
     setTodayShifts((todayShiftsRes.data as unknown as TodayShiftRow[]) || []);
     setBakes((bakesRes.data as BakeRow[]) || []);
-    setNeedsAvailability(!submissionRes.data);
+    // Admins müssen keine Verfügbarkeit abgeben (§9/§11) — für sie soll die
+    // Erinnerung nie aufpoppen, unabhängig vom (bei ihnen ohnehin nie
+    // ausgefüllten) Einreichungsstatus.
+    setNeedsAvailability(employee.role !== "admin" && !submissionRes.data);
     setAnnouncements((announcementsRes.data as unknown as Announcement[]) || []);
     setIncomingSwaps((incomingSwapsRes.data as unknown as SwapRow[]) || []);
     setOutgoingSwaps((outgoingSwapsRes.data as unknown as SwapRow[]) || []);
@@ -164,11 +171,19 @@ export function Home({ employee }: { employee: Employee }) {
 
   async function postAnnouncement() {
     if (!newAnnouncement.trim()) return;
+    setPostingAnnouncement(true);
     const body = newAnnouncement.trim();
-    await supabase.from("announcements").insert({ body, created_by: employee.id });
+    let image_url: string | null = null;
+    if (newAnnouncementImage) {
+      const uploaded = await uploadAnnouncementImage(newAnnouncementImage);
+      image_url = uploaded.url;
+    }
+    await supabase.from("announcements").insert({ body, image_url, created_by: employee.id });
     const { data: others } = await supabase.from("employees").select("id").eq("active", true).neq("id", employee.id);
     await notifyEmployees((others || []).map((e) => e.id), "announcement", body);
     setNewAnnouncement("");
+    setNewAnnouncementImage(null);
+    setPostingAnnouncement(false);
     load();
   }
 
@@ -250,10 +265,10 @@ export function Home({ employee }: { employee: Employee }) {
           <div className="card card-attention" style={{ maxWidth: 360, margin: 0 }}>
             <h3>Verfügbarkeit für {monthLabel(nextMonth)} fehlt noch</h3>
             <p style={{ color: "var(--ink-soft)" }}>
-              Bitte trag deine Verfügbarkeit für den kommenden Monat im Profil ein und reiche sie ein.
+              Bitte trag deine Verfügbarkeit für den kommenden Monat ein und reiche sie ein.
             </p>
             <div className="row-actions" style={{ marginTop: "0.5rem" }}>
-              <button onClick={() => navigate("/profil")}>Jetzt eintragen</button>
+              <button onClick={() => navigate("/verfuegbarkeit")}>Jetzt eintragen</button>
               <button className="ghost" onClick={() => setDismissed(true)}>
                 Später
               </button>
@@ -425,20 +440,44 @@ export function Home({ employee }: { employee: Employee }) {
       <div className="card">
         <h3>Aktuelles</h3>
         {employee.role === "admin" && (
-          <div className="row-actions" style={{ marginBottom: "0.75rem" }}>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <div className="row-actions">
+              <input
+                style={{ flex: 1 }}
+                placeholder="Neue Ankündigung…"
+                value={newAnnouncement}
+                onChange={(e) => setNewAnnouncement(e.target.value)}
+              />
+              <button onClick={postAnnouncement} disabled={postingAnnouncement || !newAnnouncement.trim()}>
+                {postingAnnouncement ? "Sende…" : "Teilen"}
+              </button>
+            </div>
             <input
-              style={{ flex: 1 }}
-              placeholder="Neue Ankündigung…"
-              value={newAnnouncement}
-              onChange={(e) => setNewAnnouncement(e.target.value)}
+              ref={announcementImageInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={(e) => setNewAnnouncementImage(e.target.files?.[0] ?? null)}
             />
-            <button onClick={postAnnouncement}>Teilen</button>
+            <p style={{ margin: "0.4rem 0 0" }}>
+              <button className="ghost" style={{ fontSize: "0.72rem" }} onClick={() => announcementImageInputRef.current?.click()}>
+                {newAnnouncementImage ? `📷 ${newAnnouncementImage.name}` : "📷 Bild anhängen (optional)"}
+              </button>
+              {newAnnouncementImage && (
+                <button className="ghost" style={{ fontSize: "0.72rem" }} onClick={() => setNewAnnouncementImage(null)}>
+                  entfernen
+                </button>
+              )}
+            </p>
           </div>
         )}
         {announcements.length === 0 && <p style={{ color: "var(--ink-soft)" }}>Noch keine Neuigkeiten.</p>}
         {announcements.map((a) => (
           <div key={a.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
             <p style={{ margin: 0 }}>{a.body}</p>
+            {a.image_url && (
+              <img src={a.image_url} alt="" style={{ marginTop: "0.4rem", borderRadius: "8px", maxHeight: "220px", objectFit: "cover" }} />
+            )}
             <span style={{ fontSize: "0.68rem", color: "var(--ink-soft)" }}>
               {a.employees?.name ?? "Admin"} ·{" "}
               {new Date(a.created_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}

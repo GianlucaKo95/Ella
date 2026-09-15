@@ -155,6 +155,21 @@ export async function removeMyAvatar(): Promise<string | null> {
   return error ? "Foto konnte nicht entfernt werden" : null;
 }
 
+// Bild zu einer Ankündigung: Storage-Bucket "announcement-images" (öffentlich
+// lesbar, Schreiben admin-exklusiv per RLS, siehe Migration
+// 0023_announcement_images.sql) — anders als bei Avataren kein eigener
+// Ordner pro Person nötig, da ohnehin nur Admins schreiben dürfen.
+export async function uploadAnnouncementImage(file: File): Promise<{ url: string | null; error: string | null }> {
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "jpg";
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from("announcement-images").upload(path, file, {
+    contentType: file.type || "image/jpeg"
+  });
+  if (uploadError) return { url: null, error: "Bild konnte nicht hochgeladen werden" };
+  const { data } = supabase.storage.from("announcement-images").getPublicUrl(path);
+  return { url: data.publicUrl, error: null };
+}
+
 // Admin löscht einen Mitarbeiter endgültig — löscht zuerst dessen Auth-User
 // (falls vorhanden), dann die employees-Zeile selbst. Braucht wie
 // resetEmployeePassword den Access-Token der aufrufenden Admin-Person.

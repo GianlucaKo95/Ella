@@ -17,11 +17,16 @@ import {
   billingPeriod,
   formatDayMonth,
   timeToMinutes,
+  addDays,
   addMonths,
-  monthStartOf
+  monthStartOf,
+  weekStartOf,
+  addWeeks,
+  weekDaysMatching,
+  weekLabel
 } from "../lib/dates";
 
-type EmployeeRow = { id: string; name: string; active: boolean; bake_team_id: string | null };
+type EmployeeRow = { id: string; name: string; role: "admin" | "employee"; active: boolean; bake_team_id: string | null };
 type SpecialDay = { id: string; date: string; label: string; service_exception: boolean; frueh_exception: boolean };
 type AvailabilityRow = {
   employee_id: string;
@@ -128,6 +133,9 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   }, [tab]);
 
   const [planMonth, setPlanMonth] = useState(() => monthStartOf(new Date()));
+  // Backplanung läuft wochenweise statt über den ganzen Monat — eigener,
+  // unabhängiger Navigationszustand (siehe bkDays weiter unten).
+  const [planWeek, setPlanWeek] = useState(() => weekStartOf(new Date()));
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
   const [requirements, setRequirements] = useState<StaffingReq[]>([]);
@@ -175,7 +183,8 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [newCakeRecipe, setNewCakeRecipe] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [shiftAuditLog, setShiftAuditLog] = useState<AuditEntry[]>([]);
+  const [bakeAuditLog, setBakeAuditLog] = useState<AuditEntry[]>([]);
   const push = usePushToggle(employee.id);
   // Schichtplanung: nur ein Tag gleichzeitig aufgeklappt (Akkordeon statt
   // mehrerer unabhängiger Klapp-Zustände wie bei Kuchen/Mitarbeitern) — bei
@@ -217,39 +226,75 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       .filter((d) => d.getFullYear() === planMonth.getFullYear() && d.getMonth() === planMonth.getMonth());
     return mergeUniqueDates(base, extra);
   }, [planMonth, savedServiceDays, specialDays]);
-  const bkDays = useMemo(() => monthDaysMatching(planMonth, savedBakeDays), [planMonth, savedBakeDays]);
+  // Anders als die Schichtplanung läuft die Backplanung nur wochenweise
+  // (Feedback: "gilt immer nur eine Woche und nicht den ganzen Monat") —
+  // eigener Wochenzustand statt des gemeinsamen planMonth.
+  const bkDays = useMemo(() => weekDaysMatching(planWeek, savedBakeDays), [planWeek, savedBakeDays]);
   const svcDateStrs = svcDays.map(toDateStr);
   const bkDateStrs = bkDays.map(toDateStr);
 
+  // Admins müssen keine Verfügbarkeit abgeben (§9/§11) — für den
+  // Verfügbarkeits-Stichtag/Erinnerungen bewusst ausgeklammert. Für die
+  // Schicht-Zuweisung (weiter unten) bleiben sie Teil von `employees`, tauchen
+  // dort aber gesondert am Ende der Auswahl auf (Notfall-Besetzung).
+  const nonAdminEmployees = useMemo(() => employees.filter((e) => e.role !== "admin"), [employees]);
+  const adminEmployees = useMemo(() => employees.filter((e) => e.role === "admin"), [employees]);
+
   async function loadAll() {
-    const [emp, avail, req, sh, cakes, cakeIngr, bakes, teams, teamDays, deadlineRes, submissionsRes, swapsRes, auditRes, specialRes] =
-      await Promise.all([
-        supabase.from("employees").select("id,name,active,bake_team_id").eq("active", true),
-        supabase.from("availability_entries").select("*"),
-        supabase.from("staffing_requirements").select("*"),
-        supabase.from("shifts").select("*").in("date", svcDateStrs),
-        supabase.from("cake_items").select("*").order("name"),
-        supabase.from("cake_recipe_ingredients").select("*").order("sort_order"),
-        supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
-        supabase.from("bake_teams").select("*"),
-        supabase.from("bake_team_days").select("*"),
-        supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
-        supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr),
-        supabase
-          .from("shift_swap_requests")
-          .select(
-            "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
-          )
-          .eq("status", "accepted"),
-        supabase
-          .from("plan_audit_log")
-          .select("id,entity,date,change_summary,changed_at")
-          .gte("date", toDateStr(planMonth))
-          .lt("date", toDateStr(addMonths(planMonth, 1)))
-          .order("changed_at", { ascending: false })
-          .limit(50),
-        supabase.from("special_days").select("*").order("date")
-      ]);
+    const [
+      emp,
+      avail,
+      req,
+      sh,
+      cakes,
+      cakeIngr,
+      bakes,
+      teams,
+      teamDays,
+      deadlineRes,
+      submissionsRes,
+      swapsRes,
+      shiftAuditRes,
+      bakeAuditRes,
+      specialRes
+    ] = await Promise.all([
+      supabase.from("employees").select("id,name,role,active,bake_team_id").eq("active", true),
+      supabase.from("availability_entries").select("*"),
+      supabase.from("staffing_requirements").select("*"),
+      supabase.from("shifts").select("*").in("date", svcDateStrs),
+      supabase.from("cake_items").select("*").order("name"),
+      supabase.from("cake_recipe_ingredients").select("*").order("sort_order"),
+      supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
+      supabase.from("bake_teams").select("*"),
+      supabase.from("bake_team_days").select("*"),
+      supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
+      supabase.from("availability_submissions").select("employee_id, submitted_at").eq("month", nextMonthStr),
+      supabase
+        .from("shift_swap_requests")
+        .select(
+          "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
+        )
+        .eq("status", "accepted"),
+      supabase
+        .from("plan_audit_log")
+        .select("id,entity,date,change_summary,changed_at")
+        .eq("entity", "shift")
+        .gte("date", toDateStr(planMonth))
+        .lt("date", toDateStr(addMonths(planMonth, 1)))
+        .order("changed_at", { ascending: false })
+        .limit(50),
+      // Backplanung läuft wochenweise (s. o.) — das Änderungsprotokoll dafür
+      // deckt entsprechend nur die angezeigte Woche ab, nicht den ganzen Monat.
+      supabase
+        .from("plan_audit_log")
+        .select("id,entity,date,change_summary,changed_at")
+        .eq("entity", "bake_entry")
+        .gte("date", toDateStr(planWeek))
+        .lt("date", toDateStr(addDays(planWeek, 7)))
+        .order("changed_at", { ascending: false })
+        .limit(50),
+      supabase.from("special_days").select("*").order("date")
+    ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
     setRequirements((req.data as StaffingReq[]) || []);
@@ -262,7 +307,8 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
-    setAuditLog((auditRes.data as AuditEntry[]) || []);
+    setShiftAuditLog((shiftAuditRes.data as AuditEntry[]) || []);
+    setBakeAuditLog((bakeAuditRes.data as AuditEntry[]) || []);
     setSpecialDays((specialRes.data as SpecialDay[]) || []);
   }
 
@@ -454,8 +500,11 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   }, []);
 
   async function sendReminder() {
+    // Admins müssen keine Verfügbarkeit abgeben (§9/§11) — ohne diesen Filter
+    // stünde ein Admin dauerhaft als "ausstehend" da und könnte sich selbst
+    // eine Erinnerung schicken.
     const missingIds = employees
-      .filter((e) => !submissions.some((s) => s.employee_id === e.id))
+      .filter((e) => e.role !== "admin" && !submissions.some((s) => s.employee_id === e.id))
       .map((e) => e.id);
     if (missingIds.length === 0) return;
     setReminderSending(true);
@@ -472,7 +521,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planMonth, savedServiceDays, savedBakeDays]);
+  }, [planMonth, planWeek, savedServiceDays, savedBakeDays]);
 
   // Kurzfassung für die zugeklappte Tageskarte — getrennt nach Früh/Spät
   // (Feedback: "auf den ersten Blick einsehbar, ob da noch Leute fehlen"),
@@ -554,7 +603,9 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     const { error } = await supabase.from("bake_plan_entries").insert({
       date,
       cake_item_id: cakeItems[0].id,
-      quantity: 1,
+      // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
+      // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
+      quantity: 2,
       bake_team_id: defaultTeamId,
       status: "draft"
     });
@@ -607,7 +658,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
-  async function publishBakeMonth(force = false) {
+  async function publishBakeWeek(force = false) {
     if (!force && unassignedBakeEntries.length > 0) {
       setPublishWarningAck(false);
       return;
@@ -628,9 +679,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
-  const shiftAuditLog = useMemo(() => auditLog.filter((a) => a.entity === "shift"), [auditLog]);
-  const bakeAuditLog = useMemo(() => auditLog.filter((a) => a.entity === "bake_entry"), [auditLog]);
-
   return (
     <div>
       <h2>Planung (Admin)</h2>
@@ -647,7 +695,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
         </button>
       </div>
 
-      {tab !== "einstellungen" && (
+      {tab === "schicht" && (
         <div className="cal-header">
           <button className="ghost" onClick={() => setPlanMonth((m) => addMonths(m, -1))}>
             ‹
@@ -663,9 +711,30 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
           </div>
         </div>
       )}
-      {tab !== "einstellungen" && (
+      {tab === "schicht" && (
         <p style={{ fontSize: "0.72rem", color: "var(--ink-soft)", margin: "0 0 0.8rem" }}>
           Geplant wird immer der ganze Kalendermonat (Einstellungen dazu im Tab "Einstellungen").
+        </p>
+      )}
+      {tab === "back" && (
+        <div className="cal-header">
+          <button className="ghost" onClick={() => setPlanWeek((w) => addWeeks(w, -1))}>
+            ‹
+          </button>
+          <h3 style={{ margin: 0 }}>Woche {weekLabel(planWeek)}</h3>
+          <div className="nav-btns">
+            <button className="ghost" onClick={() => setPlanWeek(weekStartOf(new Date()))}>
+              Diese Woche
+            </button>
+            <button className="ghost" onClick={() => setPlanWeek((w) => addWeeks(w, 1))}>
+              ›
+            </button>
+          </div>
+        </div>
+      )}
+      {tab === "back" && (
+        <p style={{ fontSize: "0.72rem", color: "var(--ink-soft)", margin: "0 0 0.8rem" }}>
+          Anders als die Schichtplanung gilt der Backplan immer nur für die angezeigte Woche.
         </p>
       )}
 
@@ -781,11 +850,22 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                             <td data-label="Mitarbeiter">
                               <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
                                 <option value="">– wählen –</option>
-                                {employees.map((emp) => (
-                                  <option key={emp.id} value={emp.id}>
-                                    {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
-                                  </option>
-                                ))}
+                                <optgroup label="Mitarbeiter">
+                                  {nonAdminEmployees.map((emp) => (
+                                    <option key={emp.id} value={emp.id}>
+                                      {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                {adminEmployees.length > 0 && (
+                                  <optgroup label="Admins (im Notfall)">
+                                    {adminEmployees.map((emp) => (
+                                      <option key={emp.id} value={emp.id}>
+                                        {emp.name} ({availabilityFor(emp.id, d, dateStr, s.start_time)})
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                               </select>
                             </td>
                             <td data-label="">
@@ -832,7 +912,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
         <>
           {bakeAuditLog.length > 0 && (
             <div className="card">
-              <h3>Änderungsprotokoll ({monthLabel(planMonth)})</h3>
+              <h3>Änderungsprotokoll (Woche {weekLabel(planWeek)})</h3>
               <p className="hint">Nachträgliche Änderungen an bereits veröffentlichten Backeinträgen.</p>
               {bakeAuditLog.map((a) => (
                 <div className="shift-line" key={a.id}>
@@ -853,7 +933,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                 {unassignedBakeEntries.length} Backeintrag{unassignedBakeEntries.length > 1 ? "e" : ""} ohne zugeordnete
                 Truppe. Truppe zuweisen oder trotzdem veröffentlichen?
               </p>
-              <button style={{ marginTop: "0.5rem" }} onClick={() => publishBakeMonth(true)}>
+              <button style={{ marginTop: "0.5rem" }} onClick={() => publishBakeWeek(true)}>
                 Trotzdem veröffentlichen
               </button>{" "}
               <button className="ghost" onClick={() => setPublishWarningAck(false)}>
@@ -864,15 +944,15 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
           <button
             onClick={() => {
               if (unassignedBakeEntries.length > 0) setPublishWarningAck(true);
-              else publishBakeMonth();
+              else publishBakeWeek();
             }}
           >
-            📣 Backplan für {monthLabel(planMonth)} veröffentlichen
+            📣 Backplan für Woche {weekLabel(planWeek)} veröffentlichen
           </button>
 
           <h3 style={{ marginTop: "1rem" }}>
             Backplan ({savedBakeDays.map((d) => DAY_NAMES[d].slice(0, 2)).join("/")}, außerhalb Öffnungszeiten,{" "}
-            {monthLabel(planMonth)})
+            Woche {weekLabel(planWeek)})
           </h3>
           {bkDays.map((d, i) => {
             const dateStr = bkDateStrs[i];
@@ -1503,14 +1583,17 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
 
           <SettingsSection
             title={`Verfügbarkeits-Stichtag für ${monthLabel(nextMonth)}`}
-            subtitle={`${submissions.length}/${employees.length} eingereicht${deadline ? ` · Stichtag ${new Date(deadline).toLocaleDateString("de-DE")}` : ""}`}
+            subtitle={`${submissions.length}/${nonAdminEmployees.length} eingereicht${deadline ? ` · Stichtag ${new Date(deadline).toLocaleDateString("de-DE")}` : ""}`}
           >
+            <p className="hint" style={{ marginTop: 0 }}>
+              Gilt nur für Mitarbeiter — Admins müssen keine Verfügbarkeit abgeben und tauchen hier nicht auf.
+            </p>
             <p>
               <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />{" "}
               <button className="ghost" onClick={saveDeadline}>Stichtag speichern</button>
             </p>
             {(() => {
-              const missing = employees.filter((e) => !submissions.some((s) => s.employee_id === e.id));
+              const missing = nonAdminEmployees.filter((e) => !submissions.some((s) => s.employee_id === e.id));
               if (missing.length === 0) return null;
               return (
                 <p>
@@ -1535,7 +1618,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp) => {
+                {nonAdminEmployees.map((emp) => {
                   const sub = submissions.find((s) => s.employee_id === emp.id);
                   return (
                     <tr key={emp.id}>

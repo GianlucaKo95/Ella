@@ -129,3 +129,23 @@ export function billingPeriod(refDate: Date, startDay: number): { start: Date; e
 export function formatDayMonth(d: Date): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
 }
+
+// Montag der Woche, die `anyDate` enthält.
+export function weekStartOf(anyDate: Date): Date {
+  return addDays(anyDate, -isoDayOfWeek(anyDate));
+}
+
+export function addWeeks(weekStart: Date, delta: number): Date {
+  return addDays(weekStart, delta * 7);
+}
+
+// Die 7 Tage der Woche (Mo..So ab `weekStart`), gefiltert auf erlaubte
+// Wochentage — für die Backplanung, die anders als die Schichtplanung nicht
+// über den ganzen Kalendermonat, sondern nur wochenweise läuft.
+export function weekDaysMatching(weekStart: Date, allowedDays: number[]): Date[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter((d) => allowedDays.includes(isoDayOfWeek(d)));
+}
+
+export function weekLabel(weekStart: Date): string {
+  return `${formatDayMonth(weekStart)}.–${formatDayMonth(addDays(weekStart, 6))}.${weekStart.getFullYear()}`;
+}

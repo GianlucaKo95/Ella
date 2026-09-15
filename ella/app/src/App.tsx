@@ -8,6 +8,7 @@ import { IconLogout } from "./components/icons";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { Kalender } from "./pages/Kalender";
+import { Verfuegbarkeit } from "./pages/Verfuegbarkeit";
 import { Profil } from "./pages/Profil";
 import { Backen } from "./pages/Backen";
 import { AdminPlanning } from "./pages/AdminPlanning";
@@ -76,6 +77,7 @@ export default function App() {
         <Routes>
           <Route path="/home" element={<Home employee={employee} />} />
           <Route path="/kalender" element={<Kalender employee={employee} />} />
+          {employee.role !== "admin" && <Route path="/verfuegbarkeit" element={<Verfuegbarkeit employee={employee} />} />}
           <Route path="/profil" element={<Profil employee={employee} onEmployeeChanged={refresh} />} />
           {employee.bake_team_id && <Route path="/backen" element={<Backen employee={employee} />} />}
           {employee.role === "admin" && (
