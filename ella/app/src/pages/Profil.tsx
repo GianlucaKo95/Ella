@@ -4,7 +4,6 @@ import { usePushToggle } from "../lib/push";
 import { PushToggleButton } from "../components/PushToggleButton";
 import {
   DAY_NAMES,
-  MONTH_NAMES,
   RELEVANT_DAYS,
   nextMonthStart,
   monthLabel,
@@ -13,7 +12,6 @@ import {
   isoDayOfWeek,
   toDateStr,
   parseDateStr,
-  daysInMonthCount,
   formatDayMonth,
   timeToMinutes,
   toMonthStr
@@ -67,16 +65,6 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const push = usePushToggle(employee.id);
   const [entries, setEntries] = useState<AvailabilityEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  // Drei Auswahlfelder statt <input type="date"> — dessen natives
-  // Kalender-Popup öffnet sich in manchen eingebetteten WebViews (z.B. der
-  // Home-Assistant-Companion-App) nicht zuverlässig.
-  const today = new Date();
-  const [pickYear, setPickYear] = useState(today.getFullYear());
-  const [pickMonth, setPickMonth] = useState(today.getMonth() + 1);
-  const [pickDay, setPickDay] = useState(today.getDate());
-  const [newDateAvailable, setNewDateAvailable] = useState(true);
-  const maxDay = daysInMonthCount(pickYear, pickMonth);
-  const newDate = `${pickYear}-${String(pickMonth).padStart(2, "0")}-${String(Math.min(pickDay, maxDay)).padStart(2, "0")}`;
   const [deadline, setDeadline] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
 
@@ -186,8 +174,7 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   // "zusätzlich geöffnet" ODER "zusätzlich Frühschicht" ergänzen die normalen
   // Öffnungstage um einzelne Zusatztermine im einreichbaren Monat — auch ein
   // reiner frueh_exception-Sondertag (ohne zusätzliche Öffnung) braucht eine
-  // Verfügbarkeitsabfrage, sonst könnte niemand "kann Früh" dafür angeben und
-  // müsste den Tag mühsam über "Weitere Termine" unten erraten.
+  // Verfügbarkeitsabfrage, sonst könnte niemand "kann Früh" dafür angeben.
   const extraServiceDates = specialDays
     .filter((sd) => sd.service_exception || sd.frueh_exception)
     .map((sd) => parseDateStr(sd.date))
@@ -195,8 +182,6 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
   const relevantDates = mergeUniqueDates(monthDaysMatching(nextMonth, requiredDays), extraServiceDates);
   const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
   const oneTimeByDate = new Map(oneTimeEntries.map((e) => [e.specific_date as string, e]));
-  const relevantDateStrs = new Set(relevantDates.map(toDateStr));
-  const extraEntries = oneTimeEntries.filter((e) => !relevantDateStrs.has(e.specific_date as string));
 
   function choiceFor(entry: AvailabilityEntry | undefined): DayChoice | null {
     if (!entry) return null;
@@ -220,11 +205,6 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
         ...patch
       });
     }
-    load();
-  }
-
-  async function removeEntry(id: string) {
-    await supabase.from("availability_entries").delete().eq("id", id);
     load();
   }
 
@@ -386,80 +366,6 @@ export function Profil({ employee, onEmployeeChanged }: { employee: Employee; on
             Verfügbarkeit für {monthLabel(nextMonth)} einreichen
           </button>
         )}
-      </div>
-
-      <div className="card">
-        <h3>Weitere Termine</h3>
-        <p style={{ fontSize: "0.8rem", color: "var(--ink-soft)", marginTop: 0 }}>
-          Für Tage außerhalb der normalen Öffnungstage oben, z. B. eine spontane
-          Frühschicht-Ausnahme.
-        </p>
-        <p className="row-actions" style={{ flexWrap: "wrap" }}>
-          <select value={pickDay} onChange={(e) => setPickDay(Number(e.target.value))}>
-            {Array.from({ length: maxDay }, (_, i) => i + 1).map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-          <select value={pickMonth} onChange={(e) => setPickMonth(Number(e.target.value))}>
-            {MONTH_NAMES.map((name, idx) => (
-              <option key={name} value={idx + 1}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <select value={pickYear} onChange={(e) => setPickYear(Number(e.target.value))}>
-            {[today.getFullYear(), today.getFullYear() + 1].map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-          <select
-            value={newDateAvailable ? "yes" : "no"}
-            onChange={(e) => setNewDateAvailable(e.target.value === "yes")}
-          >
-            <option value="yes">kann</option>
-            <option value="no">kann nicht</option>
-          </select>{" "}
-          <button
-            className="ghost"
-            disabled={publishedDates.has(newDate)}
-            onClick={() => setDayAvailability(newDate, newDateAvailable ? "full" : "no")}
-          >
-            Hinzufügen
-          </button>
-        </p>
-        {publishedDates.has(newDate) && (
-          <p className="hint" style={{ marginTop: "0.3rem" }}>
-            🔒 Für dieses Datum ist der Dienstplan bereits erstellt, keine Änderung mehr möglich.
-          </p>
-        )}
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {extraEntries.map((e) => (
-            <li
-              key={e.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "0.4rem 0",
-                borderBottom: "1px solid var(--border)"
-              }}
-            >
-              <span>
-                {e.specific_date}: {e.available ? "kann" : "kann nicht"}
-                {publishedDates.has(e.specific_date as string) && " 🔒"}
-              </span>
-              {!publishedDates.has(e.specific_date as string) && (
-                <button className="ghost" style={{ fontSize: "0.65rem", padding: "0.3rem 0.5rem" }} onClick={() => removeEntry(e.id)}>
-                  entfernen
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
       </div>
     </div>
   );
