@@ -60,6 +60,7 @@ type CakeItem = {
   default_unit: string;
   ingredients: string | null;
   recipe_note: string | null;
+  is_favorite: boolean;
 };
 type CakeRecipeIngredient = {
   id: string;
@@ -239,6 +240,11 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // dort aber gesondert am Ende der Auswahl auf (Notfall-Besetzung).
   const nonAdminEmployees = useMemo(() => employees.filter((e) => e.role !== "admin"), [employees]);
   const adminEmployees = useMemo(() => employees.filter((e) => e.role === "admin"), [employees]);
+  // Favoriten (Kuchen-Verwaltung, §8) tauchen im Kuchen-Dropdown der
+  // Backplanung zusätzlich oben in einer eigenen Gruppe auf, bleiben aber
+  // auch unten in der vollständigen Liste — Feedback: "sollen aber auch
+  // weiterhin in der zweiten Gruppe Kuchen weiterhin angezeigt werden."
+  const favoriteCakeItems = useMemo(() => cakeItems.filter((c) => c.is_favorite), [cakeItems]);
 
   async function loadAll() {
     const [
@@ -1001,11 +1007,22 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                                   value={b.cake_item_id}
                                   onChange={(e) => updateBakeEntry(b.id, { cake_item_id: e.target.value })}
                                 >
-                                  {cakeItems.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                      {c.name}
-                                    </option>
-                                  ))}
+                                  {favoriteCakeItems.length > 0 && (
+                                    <optgroup label="Favoriten">
+                                      {favoriteCakeItems.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                          {c.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  <optgroup label="Kuchen">
+                                    {cakeItems.map((c) => (
+                                      <option key={c.id} value={c.id}>
+                                        {c.name}
+                                      </option>
+                                    ))}
+                                  </optgroup>
                                 </select>
                               </td>
                               <td data-label="Menge">
@@ -1397,24 +1414,41 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
 
           <SettingsSection
             title="Kuchen"
-            subtitle={cakeItems.length === 0 ? "Keine hinterlegt" : `${cakeItems.length} Kuchen hinterlegt`}
+            subtitle={
+              cakeItems.length === 0
+                ? "Keine hinterlegt"
+                : `${cakeItems.length} Kuchen hinterlegt${favoriteCakeItems.length > 0 ? ` · ${favoriteCakeItems.length} favorisiert` : ""}`
+            }
           >
             <p style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>
-              Nur hier hinterlegte Kuchen stehen bei der Backplanung zur Auswahl. Zum Bearbeiten antippen.
+              Nur hier hinterlegte Kuchen stehen bei der Backplanung zur Auswahl. ☆ markiert einen Kuchen als
+              Favorit — Favoriten erscheinen im Kuchen-Dropdown der Backplanung zusätzlich oben in einer eigenen
+              Gruppe. Zum Bearbeiten antippen.
             </p>
             {cakeItems.map((c) => {
               const expanded = expandedCakeIds.has(c.id);
               return (
                 <div key={c.id} style={{ borderTop: "1px solid var(--border)", paddingTop: "0.5rem", marginTop: "0.5rem" }}>
-                  <button
-                    type="button"
-                    className="ghost"
-                    style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                    onClick={() => toggleCakeExpanded(c.id)}
-                  >
-                    <span>{c.name}</span>
-                    <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ padding: "0.3rem 0.5rem", fontSize: "1rem", lineHeight: 1 }}
+                      onClick={() => updateCakeItem(c.id, { is_favorite: !c.is_favorite })}
+                      title={c.is_favorite ? "Favorit entfernen" : "Als Favorit markieren"}
+                    >
+                      {c.is_favorite ? "★" : "☆"}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                      onClick={() => toggleCakeExpanded(c.id)}
+                    >
+                      <span>{c.name}</span>
+                      <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
+                    </button>
+                  </div>
                   {expanded && (
                     <div style={{ marginTop: "0.6rem" }}>
                       <div className="row-actions">
