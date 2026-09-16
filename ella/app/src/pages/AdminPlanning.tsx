@@ -17,6 +17,7 @@ import {
   billingPeriod,
   formatDayMonth,
   timeToMinutes,
+  timeParts,
   addDays,
   addMonths,
   defaultPlanningMonth,
@@ -78,6 +79,7 @@ type BakeEntryRow = {
   quantity: number;
   bake_team_id: string | null;
   status: "draft" | "published";
+  category: "kuchen" | "boden";
 };
 type BakeTeam = { id: string; name: string };
 type AuditEntry = { id: string; entity: "shift" | "bake_entry"; date: string; change_summary: string; changed_at: string };
@@ -91,6 +93,12 @@ type PendingSwap = {
   shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
 };
 type Tab = "schicht" | "back" | "einstellungen";
+
+// Stunde/Minute getrennt als <select> statt eines nativen <input type="time">
+// (s. timeParts() in lib/dates.ts) — garantiert überall die gewünschte
+// 24h-Darstellung, unabhängig von Geräte-/Browser-Locale.
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"));
+const MINUTE_OPTIONS = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
 
 // Aufklappbarer Abschnitt für den Einstellungen-Tab (war vorher eine einzige
 // lange Karte mit allem offen untereinander — Feedback: "unübersichtlich").
@@ -597,6 +605,16 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Start-/Endzeit bleiben nach dem Anlegen weiterhin änderbar (Feedback:
+  // "auch wenn vorverlegt zusätzlich bearbeitbar") — z. B. wenn eine
+  // Frühschicht ausnahmsweise später beginnt. Der bereits bestehende Trigger
+  // `log_shift_change` (Migration 0008) protokolliert eine Zeitänderung an
+  // einer schon veröffentlichten Schicht automatisch im Änderungsprotokoll.
+  async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
+    await supabase.from("shifts").update(patch).eq("id", id);
+    loadAll();
+  }
+
   async function deleteShift(id: string) {
     await supabase.from("shifts").delete().eq("id", id);
     loadAll();
@@ -846,12 +864,39 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {dayShifts.map((s) => (
+                        {dayShifts.map((s) => {
+                          const [sh, sm] = timeParts(s.start_time);
+                          const [eh, em] = timeParts(s.end_time);
+                          return (
                           <tr key={s.id}>
                             <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
                             <td data-label="Rolle">{s.role_tag ?? "—"}</td>
                             <td data-label="Zeit">
-                              {s.start_time}–{s.end_time}
+                              <div className="row-actions" style={{ flexWrap: "wrap" }}>
+                                <select value={sh} onChange={(e) => updateShiftTime(s.id, { start_time: `${e.target.value}:${sm}` })}>
+                                  {HOUR_OPTIONS.map((h) => (
+                                    <option key={h} value={h}>{h}</option>
+                                  ))}
+                                </select>
+                                <span>:</span>
+                                <select value={sm} onChange={(e) => updateShiftTime(s.id, { start_time: `${sh}:${e.target.value}` })}>
+                                  {MINUTE_OPTIONS.map((m) => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </select>
+                                <span>–</span>
+                                <select value={eh} onChange={(e) => updateShiftTime(s.id, { end_time: `${e.target.value}:${em}` })}>
+                                  {HOUR_OPTIONS.map((h) => (
+                                    <option key={h} value={h}>{h}</option>
+                                  ))}
+                                </select>
+                                <span>:</span>
+                                <select value={em} onChange={(e) => updateShiftTime(s.id, { end_time: `${eh}:${e.target.value}` })}>
+                                  {MINUTE_OPTIONS.map((m) => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </select>
+                              </div>
                             </td>
                             <td data-label="Mitarbeiter">
                               <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
@@ -878,7 +923,8 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                               <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteShift(s.id)}>✕</button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                     {(savedFruehDays.includes(dow) || specialDay?.frueh_exception) && (
@@ -994,6 +1040,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                           <th>Kuchen</th>
                           <th>Menge</th>
                           <th>Truppe</th>
+                          <th>Kategorie</th>
                           <th />
                         </tr>
                       </thead>
@@ -1052,6 +1099,15 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                                     ⚠ {collisions.join(", ")} hat heute auch Service-Schicht
                                   </p>
                                 )}
+                              </td>
+                              <td data-label="Kategorie">
+                                <select
+                                  value={b.category}
+                                  onChange={(e) => updateBakeEntry(b.id, { category: e.target.value as "kuchen" | "boden" })}
+                                >
+                                  <option value="kuchen">Kuchen</option>
+                                  <option value="boden">Böden</option>
+                                </select>
                               </td>
                               <td data-label="">
                                 <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>

@@ -301,6 +301,15 @@ tr:last-child td { border-bottom: none; }
     flex: 1;
     min-width: 0;
   }
+  /* Zellen mit mehreren Feldern (z. B. Stunde/Minute-Auswahl einer Zeit)
+     bündeln diese in einer .row-actions statt eines einzelnen direkten
+     select/input-Kindes — ohne diese Regel griff obiges "> select/input"
+     nicht, das umschließende Div blieb dadurch mit seiner vollen
+     Inhaltsbreite stehen und sprengte die Kastenbreite nach rechts raus. */
+  table.stack td > .row-actions {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 /* Verfügbarkeits-Zeilen (Profil, ohne Tabelle: eine sehr breite Segmented-
