@@ -130,24 +130,35 @@ Deno.serve(async (req) => {
   const title = TITLE_BY_TYPE[type] ?? "Ella";
   const payloadJson = JSON.stringify({ title, body, url: "/home" });
 
+  // Parallel statt nacheinander verschickt (Feedback: "Das Veröffentlichen des
+  // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — bei mehreren
+  // Ziel-Geräten hat sich die Laufzeit jedes einzelnen Web-Push-Sendevorgangs
+  // (eigener HTTPS-Request an den jeweiligen Push-Dienst) bisher gerade addiert,
+  // weil `send-push` seinerseits vom aufrufenden Client abgewartet wurde.
+  const results = await Promise.allSettled(
+    (subscriptions || []).map((sub) =>
+      webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payloadJson)
+    )
+  );
+
   let pushed = 0;
-  for (const sub of subscriptions || []) {
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payloadJson
-      );
+  const staleSubscriptionIds: string[] = [];
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") {
       pushed++;
-    } catch (err) {
-      // 404/410 = Abo ist beim Push-Dienst nicht mehr gültig (z. B. Browserdaten
-      // gelöscht, App deinstalliert) — aufräumen, damit künftige Sendungen nicht
-      // wieder daran scheitern. Andere Fehler (z. B. vorübergehend nicht
-      // erreichbar) werden bewusst ignoriert, ohne den ganzen Versand abzubrechen.
-      const status = (err as { statusCode?: number })?.statusCode;
-      if (status === 404 || status === 410) {
-        await admin.from("push_subscriptions").delete().eq("id", sub.id);
-      }
+      return;
     }
+    // 404/410 = Abo ist beim Push-Dienst nicht mehr gültig (z. B. Browserdaten
+    // gelöscht, App deinstalliert) — aufräumen, damit künftige Sendungen nicht
+    // wieder daran scheitern. Andere Fehler (z. B. vorübergehend nicht
+    // erreichbar) werden bewusst ignoriert, ohne den ganzen Versand abzubrechen.
+    const status = (result.reason as { statusCode?: number })?.statusCode;
+    if (status === 404 || status === 410) {
+      staleSubscriptionIds.push(subscriptions![i].id);
+    }
+  });
+  if (staleSubscriptionIds.length > 0) {
+    await admin.from("push_subscriptions").delete().in("id", staleSubscriptionIds);
   }
 
   return jsonResponse({ ok: true, pushed });
