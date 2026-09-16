@@ -707,7 +707,12 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     const notifyIds = Array.from(
       new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
     );
-    await notifyEmployees(notifyIds, "shift_published", `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`);
+    // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
+    // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
+    // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
+    // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
+    // Bestätigung nicht länger blockieren.
+    notifyEmployees(notifyIds, "shift_published", `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`);
     // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
     // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
     // Neuladen der Liste keine sichtbare Bestätigung.

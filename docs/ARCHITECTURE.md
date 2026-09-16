@@ -247,6 +247,26 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   `verify_jwt` bewusst aus (`supabase/config.toml`, gleicher Grund wie bei
   `reset-password`/`delete-employee`), Berechtigung wird im Code anhand des
   mitgeschickten Bearer-Tokens geprüft.
+
+  **Bugfix: Veröffentlichen fühlte sich langsam an** (Feedback: "Das
+  Veröffentlichen des Plans dauert bis zu 20 Sekunden bis die Meldung kommt
+  das X Schichten veröffentlicht sind"): zwei unabhängige Ursachen. Erstens
+  verschickte `send-push` die Web-Push-Nachricht an jedes Ziel-Gerät
+  **nacheinander** in einer `for`-Schleife (`await webpush.sendNotification(...)`
+  je Abo) — bei mehreren Ziel-Mitarbeitern/-Geräten addierten sich die
+  Einzel-Laufzeiten (je ein eigener HTTPS-Request an den jeweiligen
+  Push-Dienst) zur Gesamtlaufzeit der Funktion. Läuft jetzt über
+  `Promise.allSettled(...)` parallel, die anschließende Aufräum-Löschung
+  ungültiger Abos (404/410) sammelt betroffene IDs und läuft als ein
+  gebündeltes `delete().in(...)` statt einzeln je Abo. Zweitens — und
+  gravierender — hat `publishShiftMonth()` (AdminPlanning.tsx) genau diesen
+  Versand per `await notifyEmployees(...)` **abgewartet, bevor** die
+  Erfolgsmeldung (§10, "Auch das ist still...") überhaupt angezeigt wurde,
+  obwohl die Schichten zu diesem Zeitpunkt bereits veröffentlicht sind — der
+  Admin wartete auf einen Nebeneffekt (Benachrichtigungsversand), der mit dem
+  eigentlichen Ergebnis nichts mehr zu tun hat. `notifyEmployees(...)` wird
+  dort jetzt bewusst nicht mehr abgewartet (fire-and-forget), die Meldung
+  erscheint direkt nach dem erfolgreichen Datenbank-Update.
 - **Auslöser**: `respondToSwap()` (Home.tsx) benachrichtigt die Admins erst
   bei "angenommen" (nicht schon bei der ursprünglichen Anfrage) — erst dann
   wartet der Tausch auf die finale Bestätigung durch einen Admin
