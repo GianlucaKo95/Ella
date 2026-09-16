@@ -178,6 +178,13 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     if (sameTime(entry.from_time, FRUEH_KUECHE_WINDOW.from) && sameTime(entry.to_time, FRUEH_KUECHE_WINDOW.to)) return "frueh_kueche";
     if (sameTime(entry.from_time, FRUEH_SERVICE_WINDOW.from) && sameTime(entry.to_time, FRUEH_SERVICE_WINDOW.to)) return "frueh_service";
     if (sameTime(entry.from_time, SPAET_WINDOW.from) && sameTime(entry.to_time, SPAET_WINDOW.to)) return "spaet";
+    // Ein gesetztes, aber zu keinem der obigen Fenster passendes Zeitfenster
+    // ist ein Altbestand vom früheren, einzelnen "Früh"-Fenster (00:00–13:00,
+    // vor der Aufteilung in Küche/Service) — dafür lässt sich nicht mehr
+    // rückwirkend erraten, welche der beiden Rollen gemeint war. Absichtlich
+    // kein Button vorausgewählt (statt fälschlich "ganztags" zu zeigen), die
+    // Person muss den Tag einmal neu bestätigen.
+    if (entry.from_time || entry.to_time) return null;
     return "full";
   }
 
@@ -225,11 +232,14 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
 
   // Ein gesperrter Tag (Dienstplan schon veröffentlicht) zählt nicht als
   // "offen" — sonst könnte das Einreichen nie vollständig werden, falls der
-  // Admin einen Tag veröffentlicht, bevor die Person ihn ausgefüllt hat.
-  const isComplete = relevantDates.every((d) => oneTimeByDate.has(toDateStr(d)) || publishedDates.has(toDateStr(d)));
-  const missingCount = relevantDates.filter(
-    (d) => !oneTimeByDate.has(toDateStr(d)) && !publishedDates.has(toDateStr(d))
-  ).length;
+  // Admin einen Tag veröffentlicht, bevor die Person ihn ausgefüllt hat. Ein
+  // Tag mit nicht mehr erkennbarem Zeitfenster (Altbestand des früheren
+  // einzelnen "Früh"-Buttons, s. `choiceFor()`) zählt bewusst NICHT als
+  // beantwortet — sonst würde das "bereit zum Einreichen" so einen Tag
+  // verdecken, den die Person eigentlich neu bestätigen sollte.
+  const isDayAnswered = (d: Date) => choiceFor(oneTimeByDate.get(toDateStr(d))) !== null || publishedDates.has(toDateStr(d));
+  const isComplete = relevantDates.every(isDayAnswered);
+  const missingCount = relevantDates.filter((d) => !isDayAnswered(d)).length;
   const isLate = deadline ? new Date() > new Date(deadline + "T23:59:59") : false;
   // Nur noch offene Tage stehen für neue Entweder/Oder-Paare zur Auswahl —
   // ein bereits veröffentlichter Tag ist ohnehin nicht mehr planbar.
