@@ -141,6 +141,8 @@ export function AdminEmployees({ currentEmployeeId }: { currentEmployeeId: strin
                   <span style={{ fontWeight: 400, fontSize: "0.72rem", color: "var(--ink-soft)" }}>
                     {e.role === "admin" ? "Admin" : "Mitarbeiter"} · {e.active ? "aktiv" : "inaktiv"}
                     {teamName && ` · ${teamName}`}
+                    {" · "}
+                    {e.auth_user_id ? "✅ registriert" : "⏳ noch keine Erstanmeldung"}
                   </span>
                 </span>
                 <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
