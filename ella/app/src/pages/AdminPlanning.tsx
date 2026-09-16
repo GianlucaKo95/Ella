@@ -669,12 +669,16 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Dienstplan und Backplan werden bewusst unabhängig voneinander
   // veröffentlicht — das eine hat mit dem anderen nichts zu tun.
   async function publishShiftMonth() {
-    const { data: publishedShifts } = await supabase
+    const { data: publishedShifts, error } = await supabase
       .from("shifts")
       .update({ status: "published" })
       .in("date", svcDateStrs)
       .eq("status", "draft")
       .select("employee_id");
+    if (error) {
+      alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
+      return;
+    }
     const notifyIds = Array.from(
       new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
     );
@@ -684,10 +688,18 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
 
   async function publishBakeWeek(force = false) {
     if (!force && unassignedBakeEntries.length > 0) {
-      setPublishWarningAck(false);
+      setPublishWarningAck(true);
       return;
     }
-    await supabase.from("bake_plan_entries").update({ status: "published" }).in("date", bkDateStrs).eq("status", "draft");
+    const { error } = await supabase
+      .from("bake_plan_entries")
+      .update({ status: "published" })
+      .in("date", bkDateStrs)
+      .eq("status", "draft");
+    if (error) {
+      alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
+      return;
+    }
     setPublishWarningAck(false);
     loadAll();
   }
