@@ -104,7 +104,14 @@ export function Kalender({ employee }: { employee: Employee }) {
     const rangeEnd = toDateStr(grid[grid.length - 1]);
     supabase
       .from("shifts")
-      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees(name)")
+      // `employees!employee_id(...)` statt `employees(...)`: `shifts` hat mit
+      // `employee_id` UND `created_by` zwei Fremdschlüssel auf `employees` —
+      // ohne den Spalten-Hint kann PostgREST nicht entscheiden, über welchen
+      // eingebettet werden soll, und liefert einen Fehler statt Daten (leer
+      // verschluckt, da hier kein `error` geprüft wird — Feedback: "in der
+      // Kalenderansicht wird nur die Backschicht angezeigt und weder meine
+      // Dienstplan Schichten noch die der anderen").
+      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees!employee_id(name)")
       .eq("status", "published")
       .gte("date", rangeStart)
       .lte("date", rangeEnd)
@@ -131,7 +138,7 @@ export function Kalender({ employee }: { employee: Employee }) {
   useEffect(() => {
     supabase
       .from("shifts")
-      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees(name)")
+      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees!employee_id(name)")
       .eq("status", "published")
       .eq("employee_id", employee.id)
       .gte("date", toDateStr(period.start))

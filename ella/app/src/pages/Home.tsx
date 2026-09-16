@@ -80,7 +80,10 @@ export function Home({ employee }: { employee: Employee }) {
 
     const todayShiftsPromise = supabase
       .from("shifts")
-      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees(name)")
+      // `employees!employee_id(...)`: `shifts` hat mit `employee_id` und
+      // `created_by` zwei Fremdschlüssel auf `employees`, der Spalten-Hint
+      // löst die sonst mehrdeutige Einbettung auf (siehe Kalender.tsx).
+      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees!employee_id(name)")
       .eq("date", today)
       .eq("status", "published")
       .order("start_time");
