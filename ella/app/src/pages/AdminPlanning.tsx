@@ -586,20 +586,20 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   function availabilityFor(employeeId: string, date: Date, dateStr: string, shiftStartTime: string): string {
     // Entweder/Oder-Tage (Verfuegbarkeit.tsx, Feedback: "wenn ich für Tag 1
     // eingeplant werde, kann ich an Tag 2 nicht oder wenn ich an Tag 2
-    // eingeplant bin, kann ich an Tag 1 nicht") greifen erst, sobald einer der
-    // beiden Tage bereits mit einer Schicht belegt ist — vorher ändert das
-    // Paar an der normal eingetragenen Verfügbarkeit nichts.
+    // eingeplant bin, kann ich an Tag 1 nicht") überschreiben die normale
+    // Verfügbarkeit für beide Tage des Paares von Anfang an, nicht erst nach
+    // einer Zuweisung (Feedback: "es müssen dann aber beide erstmal als Kann
+    // Tage angezeigt werden mit dem Zusatz Entweder/Oder-Tag, damit der Admin
+    // sich da entscheiden kann") — erst wenn die Person bereits für den
+    // *anderen* Tag des Paares eingeteilt ist, kippt dieser Tag auf "kann
+    // nicht", weil dann schon entschieden ist, welcher der beiden es wird.
     const pair = eitherOrPairs.find(
       (p) => p.employee_id === employeeId && (p.date_a === dateStr || p.date_b === dateStr)
     );
     if (pair) {
       const otherDate = pair.date_a === dateStr ? pair.date_b : pair.date_a;
-      if (shifts.some((s) => s.employee_id === employeeId && s.date === otherDate)) {
-        return "kann nicht – Entweder/Oder-Tag";
-      }
-      if (shifts.some((s) => s.employee_id === employeeId && s.date === dateStr)) {
-        return "kann – Entweder/Oder-Tag";
-      }
+      const otherDayTaken = shifts.some((s) => s.employee_id === employeeId && s.date === otherDate);
+      return otherDayTaken ? "kann nicht – Entweder/Oder-Tag" : "kann – Entweder/Oder-Tag";
     }
     const dow = isoDayOfWeek(date);
     const entry =
