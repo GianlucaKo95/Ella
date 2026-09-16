@@ -189,6 +189,23 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   registriert den Worker entsprechend selbst über `virtual:pwa-register`
   (`registerSW({ immediate: true })`) statt über das vorher injizierte
   Standard-Skript.
+- **`nginx.conf` Cache-Control** (Feedback: "Ein Refresh lässt das System
+  abstürzen und auch der Database Sync und im allgemeinen ist das System sehr
+  langsam"): jedes Add-on-Update baut `/www` im Dockerfile komplett neu
+  (neues Image, neue Hash-Dateinamen unter `/assets`, alte Dateien
+  existieren im neuen Container nicht mehr). `index.html`, `sw.js` und
+  `manifest.webmanifest` hatten bis dahin kein explizites `Cache-Control`,
+  wodurch der Browser sie nach eigenem Ermessen (heuristisches Caching)
+  längere Zeit unverändert aus dem Cache bediente — nach einem Update verwies
+  ein so gecachtes `index.html` dann auf inzwischen gelöschte, alte
+  Asset-Dateinamen (404 beim bloßen Neuladen, im schlimmsten Fall eine
+  weiße/abstürzende Seite) bzw. lief ein veralteter Bundle-Stand gegen ein
+  inzwischen per Migration geändertes Datenbankschema (wahrgenommen als
+  langsame/fehlerhafte Datensynchronisierung). Fix: `index.html`, `sw.js`
+  und `manifest.webmanifest` explizit `Cache-Control: no-store` (wie schon
+  vorher `runtime-config.js`), Dateien unter `/assets/` (inhaltsbasierter
+  Hash im Namen, ändert sich der Inhalt ändert sich der Dateiname) dafür
+  bedenkenlos `Cache-Control: public, max-age=31536000, immutable`.
 - **Versand — Edge Function `send-push`** (ersetzt den bisherigen direkten
   Insert in `notifications_log` aus `notifyEmployees()`): schreibt weiterhin
   die `notifications_log`-Zeile(n), verschickt zusätzlich die Web-Push-
