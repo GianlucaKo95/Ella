@@ -12,7 +12,28 @@ import { precacheAndRoute } from "workbox-precaching";
 
 declare const self: ServiceWorkerGlobalScope;
 
-precacheAndRoute(self.__WB_MANIFEST);
+// `index.html`/`runtime-config.js` bewusst NICHT vorcachen, obwohl vite-pwa
+// sie in `self.__WB_MANIFEST` aufnimmt: nginx setzt für beide zwar
+// `Cache-Control: no-store` (nginx.conf), das steuert aber nur den normalen
+// HTTP-Cache des Browsers — die hier laufende `precacheAndRoute`-Route bedient
+// eine URL unabhängig davon direkt aus der eigenen Cache-Storage, sobald sie
+// einmal vorgecached wurde. Jedes Add-on-Update ersetzt `/www` komplett (neue
+// Hash-Dateinamen unter `/assets`), sodass eine bereits aktive, alte
+// Service-Worker-Version bei jedem Refresh weiterhin ihre alte, vorgecachte
+// `index.html` mit Verweisen auf inzwischen gelöschte Asset-Dateien ausliefern
+// konnte — das äußerte sich als weißer Bildschirm nach einem Refresh (Feedback:
+// "Ich hab immer noch den fehlgeschlagenen Refresh. Der Bildschirm bleibt dann
+// weiß."), unabhängig vom nginx-Fix. `runtime-config.js` wird bei jedem
+// Add-on-Start neu mit den echten Supabase-Zugangsdaten beschrieben und darf
+// aus demselben Grund nie aus einem alten Vorcache bedient werden. Beide
+// Requests laufen dadurch immer über das normale Netzwerk (und damit über
+// nginx' `no-store`); die inhalts-gehashten `/assets`-Dateien bleiben
+// weiterhin vorgecached.
+const manifestWithoutRuntimeFiles = self.__WB_MANIFEST.filter((entry) => {
+  const url = typeof entry === "string" ? entry : entry.url;
+  return url !== "index.html" && url !== "runtime-config.js";
+});
+precacheAndRoute(manifestWithoutRuntimeFiles);
 
 // Eine neue Version übernimmt sofort alle offenen Tabs, statt erst zu warten,
 // bis niemand die App mehr offen hat (Standard-SW-Verhalten) — sonst bliebe
