@@ -17,13 +17,21 @@ import {
 
 const DAYS = DAY_NAMES;
 
-// An Tagen mit Frühschicht wird zwischen "nur Früh"/"nur Spät"/"ganztags"
-// unterschieden (Feedback: sonst kein Unterschied zwischen "kann früh" und
-// "kann spät" abbildbar) — kodiert über die bisher ungenutzten
-// from_time/to_time-Spalten. An Tagen ohne Frühschicht bleibt es bei den
-// einfachen zwei Optionen "kann"/"kann nicht" (from_time/to_time bleiben leer).
-type DayChoice = "no" | "frueh" | "spaet" | "full";
-const FRUEH_WINDOW = { from: "00:00", to: "13:00" };
+// An Tagen mit Frühschicht wird zwischen "Früh/Küche"/"Früh/Service"/"Spät"/
+// "ganztags" unterschieden (Feedback: sonst kein Unterschied zwischen "kann
+// früh" und "kann spät" abbildbar; Folge-Feedback: "müsste bei der
+// Frühschicht noch die Auswahl zwischen Küche 07:00 Uhr und Service 08:30 Uhr
+// unterschieden werden können" — beide Frühschichten haben seit dem
+// rollenabhängigen Default in addShift() unterschiedliche Startzeiten,
+// jemand kann aber z. B. nur die eine der beiden übernehmen) — kodiert über
+// die bisher ungenutzten from_time/to_time-Spalten, mit der Grenze bei 08:00
+// zwischen beiden Fenstern (mittig zwischen den Default-Zeiten 07:00/08:30,
+// bleibt bei kleineren Zeitverschiebungen durch den Admin noch robust). An
+// Tagen ohne Frühschicht bleibt es bei den einfachen zwei Optionen
+// "kann"/"kann nicht" (from_time/to_time bleiben leer).
+type DayChoice = "no" | "frueh_kueche" | "frueh_service" | "spaet" | "full";
+const FRUEH_KUECHE_WINDOW = { from: "00:00", to: "08:00" };
+const FRUEH_SERVICE_WINDOW = { from: "08:00", to: "13:00" };
 const SPAET_WINDOW = { from: "13:00", to: "23:59" };
 
 function sameTime(a: string | null, b: string): boolean {
@@ -34,8 +42,10 @@ function choiceLabel(choice: DayChoice | null): string {
   switch (choice) {
     case "no":
       return "kann nicht";
-    case "frueh":
-      return "Früh";
+    case "frueh_kueche":
+      return "Früh/Küche";
+    case "frueh_service":
+      return "Früh/Service";
     case "spaet":
       return "Spät";
     case "full":
@@ -165,13 +175,21 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   function choiceFor(entry: AvailabilityEntry | undefined): DayChoice | null {
     if (!entry) return null;
     if (!entry.available) return "no";
-    if (sameTime(entry.from_time, FRUEH_WINDOW.from) && sameTime(entry.to_time, FRUEH_WINDOW.to)) return "frueh";
+    if (sameTime(entry.from_time, FRUEH_KUECHE_WINDOW.from) && sameTime(entry.to_time, FRUEH_KUECHE_WINDOW.to)) return "frueh_kueche";
+    if (sameTime(entry.from_time, FRUEH_SERVICE_WINDOW.from) && sameTime(entry.to_time, FRUEH_SERVICE_WINDOW.to)) return "frueh_service";
     if (sameTime(entry.from_time, SPAET_WINDOW.from) && sameTime(entry.to_time, SPAET_WINDOW.to)) return "spaet";
     return "full";
   }
 
   async function setDayAvailability(dateStr: string, choice: DayChoice) {
-    const window = choice === "frueh" ? FRUEH_WINDOW : choice === "spaet" ? SPAET_WINDOW : null;
+    const window =
+      choice === "frueh_kueche"
+        ? FRUEH_KUECHE_WINDOW
+        : choice === "frueh_service"
+          ? FRUEH_SERVICE_WINDOW
+          : choice === "spaet"
+            ? SPAET_WINDOW
+            : null;
     const patch = { available: choice !== "no", from_time: window?.from ?? null, to_time: window?.to ?? null };
     const existing = oneTimeByDate.get(dateStr);
     if (existing) {
@@ -283,8 +301,17 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
                           <button className={choice === "no" ? "off-on" : ""} onClick={() => setDayAvailability(dateStr, "no")}>
                             kann nicht
                           </button>
-                          <button className={choice === "frueh" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "frueh")}>
-                            Früh
+                          <button
+                            className={choice === "frueh_kueche" ? "on" : ""}
+                            onClick={() => setDayAvailability(dateStr, "frueh_kueche")}
+                          >
+                            Früh/Küche
+                          </button>
+                          <button
+                            className={choice === "frueh_service" ? "on" : ""}
+                            onClick={() => setDayAvailability(dateStr, "frueh_service")}
+                          >
+                            Früh/Service
                           </button>
                           <button className={choice === "spaet" ? "on" : ""} onClick={() => setDayAvailability(dateStr, "spaet")}>
                             Spät
