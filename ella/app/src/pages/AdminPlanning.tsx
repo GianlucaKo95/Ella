@@ -597,6 +597,16 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Start-/Endzeit bleiben nach dem Anlegen weiterhin änderbar (Feedback:
+  // "auch wenn vorverlegt zusätzlich bearbeitbar") — z. B. wenn eine
+  // Frühschicht ausnahmsweise später beginnt. Der bereits bestehende Trigger
+  // `log_shift_change` (Migration 0008) protokolliert eine Zeitänderung an
+  // einer schon veröffentlichten Schicht automatisch im Änderungsprotokoll.
+  async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
+    await supabase.from("shifts").update(patch).eq("id", id);
+    loadAll();
+  }
+
   async function deleteShift(id: string) {
     await supabase.from("shifts").delete().eq("id", id);
     loadAll();
@@ -851,7 +861,21 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                             <td data-label="Schicht">{s.shift_type === "frueh" ? "Früh" : "Spät"}</td>
                             <td data-label="Rolle">{s.role_tag ?? "—"}</td>
                             <td data-label="Zeit">
-                              {s.start_time}–{s.end_time}
+                              <div className="row-actions" style={{ flexWrap: "wrap" }}>
+                                <input
+                                  type="time"
+                                  value={s.start_time}
+                                  style={{ width: "7rem" }}
+                                  onChange={(e) => updateShiftTime(s.id, { start_time: e.target.value })}
+                                />
+                                <span>–</span>
+                                <input
+                                  type="time"
+                                  value={s.end_time}
+                                  style={{ width: "7rem" }}
+                                  onChange={(e) => updateShiftTime(s.id, { end_time: e.target.value })}
+                                />
+                              </div>
                             </td>
                             <td data-label="Mitarbeiter">
                               <select value={s.employee_id ?? ""} onChange={(e) => assignShift(s.id, e.target.value || null)}>
