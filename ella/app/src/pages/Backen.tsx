@@ -7,6 +7,7 @@ type BakeEntry = {
   date: string;
   quantity: number;
   cake_item_id: string;
+  category: "kuchen" | "boden";
 };
 type CakeItem = {
   id: string;
@@ -43,7 +44,7 @@ export function Backen({ employee }: { employee: Employee }) {
     Promise.all([
       supabase
         .from("bake_plan_entries")
-        .select("id,date,quantity,cake_item_id")
+        .select("id,date,quantity,cake_item_id,category")
         .eq("bake_team_id", employee.bake_team_id)
         .eq("status", "published")
         .gte("date", todayStr)
@@ -69,6 +70,67 @@ export function Backen({ employee }: { employee: Employee }) {
 
   const cakeById = new Map(cakeItems.map((c) => [c.id, c]));
 
+  const renderEntry = (entry: BakeEntry) => {
+    const cake = cakeById.get(entry.cake_item_id);
+    const expanded = expandedId === entry.id;
+    const structuredIngredients = ingredients
+      .filter((i) => i.cake_item_id === entry.cake_item_id)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const d = parseDateStr(entry.date);
+    return (
+      <div className="card" key={entry.id}>
+        <p style={{ margin: "0 0 0.3rem", fontSize: "0.75rem", color: "var(--ink-soft)" }}>
+          {DAY_NAMES[isoDayOfWeek(d)]}, {formatDayMonth(d)}
+        </p>
+        <button
+          type="button"
+          className="ghost"
+          style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+          onClick={() => setExpandedId(expanded ? null : entry.id)}
+        >
+          <span>
+            {cake?.name ?? "—"} · {entry.quantity} {cake?.default_unit ?? ""}
+          </span>
+          <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
+        </button>
+        {expanded && cake && (
+          <div style={{ marginTop: "0.6rem" }}>
+            <p className="label-caps" style={{ marginBottom: "0.3rem" }}>
+              Zutaten
+            </p>
+            {structuredIngredients.length > 0 ? (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {structuredIngredients.map((i) => (
+                  <li key={i.id} style={{ padding: "0.2rem 0", fontSize: "0.85rem" }}>
+                    {i.quantity != null && `${i.quantity} `}
+                    {i.unit && `${i.unit} `}
+                    {i.ingredient}
+                    {i.note && <span style={{ color: "var(--ink-soft)" }}> — {i.note}</span>}
+                  </li>
+                ))}
+              </ul>
+            ) : cake.ingredients ? (
+              <p style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: "0.85rem" }}>{cake.ingredients}</p>
+            ) : (
+              <p style={{ color: "var(--ink-soft)", margin: 0, fontSize: "0.85rem" }}>Keine Zutaten hinterlegt.</p>
+            )}
+            {cake.recipe_note && (
+              <>
+                <p className="label-caps" style={{ margin: "0.6rem 0 0.3rem" }}>
+                  Backanleitung
+                </p>
+                <p style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: "0.85rem" }}>{cake.recipe_note}</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const kuchenEntries = entries.filter((e) => e.category === "kuchen");
+  const bodenEntries = entries.filter((e) => e.category === "boden");
+
   return (
     <div>
       <h2>Backen</h2>
@@ -77,63 +139,24 @@ export function Backen({ employee }: { employee: Employee }) {
       ) : entries.length === 0 ? (
         <p style={{ color: "var(--ink-soft)" }}>Aktuell sind für deine Truppe keine Backtermine veröffentlicht.</p>
       ) : (
-        entries.map((entry) => {
-          const cake = cakeById.get(entry.cake_item_id);
-          const expanded = expandedId === entry.id;
-          const structuredIngredients = ingredients
-            .filter((i) => i.cake_item_id === entry.cake_item_id)
-            .sort((a, b) => a.sort_order - b.sort_order);
-          const d = parseDateStr(entry.date);
-          return (
-            <div className="card" key={entry.id}>
-              <p style={{ margin: "0 0 0.3rem", fontSize: "0.75rem", color: "var(--ink-soft)" }}>
-                {DAY_NAMES[isoDayOfWeek(d)]}, {formatDayMonth(d)}
+        <>
+          {kuchenEntries.length > 0 && (
+            <div style={{ marginBottom: "1.2rem" }}>
+              <p className="label-caps" style={{ marginBottom: "0.5rem" }}>
+                Kuchen &amp; Torten
               </p>
-              <button
-                type="button"
-                className="ghost"
-                style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                onClick={() => setExpandedId(expanded ? null : entry.id)}
-              >
-                <span>
-                  {cake?.name ?? "—"} · {entry.quantity} {cake?.default_unit ?? ""}
-                </span>
-                <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
-              </button>
-              {expanded && cake && (
-                <div style={{ marginTop: "0.6rem" }}>
-                  <p className="label-caps" style={{ marginBottom: "0.3rem" }}>
-                    Zutaten
-                  </p>
-                  {structuredIngredients.length > 0 ? (
-                    <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                      {structuredIngredients.map((i) => (
-                        <li key={i.id} style={{ padding: "0.2rem 0", fontSize: "0.85rem" }}>
-                          {i.quantity != null && `${i.quantity} `}
-                          {i.unit && `${i.unit} `}
-                          {i.ingredient}
-                          {i.note && <span style={{ color: "var(--ink-soft)" }}> — {i.note}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : cake.ingredients ? (
-                    <p style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: "0.85rem" }}>{cake.ingredients}</p>
-                  ) : (
-                    <p style={{ color: "var(--ink-soft)", margin: 0, fontSize: "0.85rem" }}>Keine Zutaten hinterlegt.</p>
-                  )}
-                  {cake.recipe_note && (
-                    <>
-                      <p className="label-caps" style={{ margin: "0.6rem 0 0.3rem" }}>
-                        Backanleitung
-                      </p>
-                      <p style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: "0.85rem" }}>{cake.recipe_note}</p>
-                    </>
-                  )}
-                </div>
-              )}
+              {kuchenEntries.map(renderEntry)}
             </div>
-          );
-        })
+          )}
+          {bodenEntries.length > 0 && (
+            <div>
+              <p className="label-caps" style={{ marginBottom: "0.5rem" }}>
+                Böden
+              </p>
+              {bodenEntries.map(renderEntry)}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -79,7 +79,7 @@ type BakeEntryRow = {
   quantity: number;
   bake_team_id: string | null;
   status: "draft" | "published";
-  note: string | null;
+  category: "kuchen" | "boden";
 };
 type BakeTeam = { id: string; name: string };
 type AuditEntry = { id: string; entity: "shift" | "bake_entry"; date: string; change_summary: string; changed_at: string };
@@ -1040,7 +1040,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                           <th>Kuchen</th>
                           <th>Menge</th>
                           <th>Truppe</th>
-                          <th>Notiz</th>
+                          <th>Kategorie</th>
                           <th />
                         </tr>
                       </thead>
@@ -1100,12 +1100,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                                   </p>
                                 )}
                               </td>
-                              <td data-label="Notiz">
-                                <input
-                                  defaultValue={b.note ?? ""}
-                                  placeholder="z. B. glutenfrei"
-                                  onBlur={(e) => e.target.value !== (b.note ?? "") && updateBakeEntry(b.id, { note: e.target.value.trim() || null })}
-                                />
+                              <td data-label="Kategorie">
+                                <select
+                                  value={b.category}
+                                  onChange={(e) => updateBakeEntry(b.id, { category: e.target.value as "kuchen" | "boden" })}
+                                >
+                                  <option value="kuchen">Kuchen</option>
+                                  <option value="boden">Böden</option>
+                                </select>
                               </td>
                               <td data-label="">
                                 <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>
