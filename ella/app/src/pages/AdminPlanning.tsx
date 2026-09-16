@@ -54,6 +54,7 @@ type ShiftRow = {
   end_time: string;
   employee_id: string | null;
   status: "draft" | "published";
+  sort_order: number;
 };
 type CakeItem = {
   id: string;
@@ -183,8 +184,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [sdLabel, setSdLabel] = useState("");
   const [sdServiceException, setSdServiceException] = useState(true);
   const [sdFruehException, setSdFruehException] = useState(false);
-  // Ausgewählte Uhrzeit im "+ Spät"-Dropdown je Tag (samstags 13/14 Uhr zur Wahl).
-  const [spaetTimeByDate, setSpaetTimeByDate] = useState<Record<string, string>>({});
   const [newTeamName, setNewTeamName] = useState("");
   const [newCakeName, setNewCakeName] = useState("");
   const [newCakeUnit, setNewCakeUnit] = useState("blech");
@@ -254,6 +253,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // weiterhin in der zweiten Gruppe Kuchen weiterhin angezeigt werden."
   const favoriteCakeItems = useMemo(() => cakeItems.filter((c) => c.is_favorite), [cakeItems]);
 
+  // `shifts`/`bake_plan_entries` bekommen bewusst ein explizites `.order(...)`
+  // — ohne eigene Sortierung ist die von Postgres zurückgegebene Reihenfolge
+  // nicht garantiert stabil und kann sich nach einem UPDATE ändern (Feedback:
+  // "wenn ich zwei Schichten hinzugefügt habe und die erste eintrage, rutscht
+  // diese dann an die zweite Position"). `shifts.sort_order` startet als reine
+  // Anlagereihenfolge, wird aber beim Zuklappen eines Tages einmalig nach
+  // Startzeit neu vergeben (`reorderShiftsByStartTime()`), `created_at` bleibt
+  // nur als Tiebreaker bei gleichem `sort_order`.
   async function loadAll() {
     const [
       emp,
@@ -275,10 +282,10 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       supabase.from("employees").select("id,name,role,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
-      supabase.from("shifts").select("*").in("date", svcDateStrs),
+      supabase.from("shifts").select("*").in("date", svcDateStrs).order("sort_order").order("created_at"),
       supabase.from("cake_items").select("*").order("name"),
       supabase.from("cake_recipe_ingredients").select("*").order("sort_order"),
-      supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs),
+      supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs).order("created_at"),
       supabase.from("bake_teams").select("*"),
       supabase.from("bake_team_days").select("*"),
       supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
@@ -582,21 +589,39 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     return "kann";
   }
 
-  async function addShift(
-    date: string,
-    shift_type: "frueh" | "spaet",
-    role_tag: "kueche" | "service" | null,
-    start_time?: string,
-    end_time?: string
-  ) {
+  async function addShift(date: string, shift_type: "frueh" | "spaet", role_tag: "kueche" | "service" | null) {
+    // Donnerstags/freitags beginnt die Spätschicht bereits um 11:30 statt
+    // 13:00 (Feedback: "Donnerstags und Freitags beginnen die Spätschichten
+    // bereits um 11:30 Uhr. Kannst du das als Default einstellen?") — die
+    // Startzeit bleibt danach wie jede andere Schicht frei änderbar.
+    const dow = isoDayOfWeek(parseDateStr(date));
+    const spaetStart = dow === 3 || dow === 4 ? "11:30" : "13:00";
+    // Früh/Küche startet um 07:00, Früh/Service erst um 08:30 (Feedback:
+    // "Früh Küche fängt immer um 07:00 Uhr an und Früh Service um 08:30 Uhr").
+    const fruehStart = role_tag === "service" ? "08:30" : "07:00";
+    const existingCount = shifts.filter((s) => s.date === date).length;
     await supabase.from("shifts").insert({
       date,
       shift_type,
       role_tag,
-      start_time: start_time ?? (shift_type === "frueh" ? "07:00" : "13:00"),
-      end_time: end_time ?? (shift_type === "frueh" ? "13:00" : "18:00"),
-      status: "draft"
+      start_time: shift_type === "frueh" ? fruehStart : spaetStart,
+      end_time: shift_type === "frueh" ? "13:00" : "18:00",
+      status: "draft",
+      sort_order: existingCount
     });
+    loadAll();
+  }
+
+  // Reiht die Schichten eines Tages neu nach Startzeit ein (statt weiterhin
+  // nach Anlagereihenfolge) — Feedback: "wenn der Tag zugeklappt wird, sollen
+  // die Schichten im Hintergrund nach Startzeitpunkt geordnet werden". Läuft
+  // bewusst erst beim Zuklappen (nicht laufend während der Bearbeitung), damit
+  // eine Schicht nicht mitten im Bearbeiten unter der Maus wegspringt.
+  async function reorderShiftsByStartTime(date: string) {
+    const sorted = [...shifts.filter((s) => s.date === date)].sort((a, b) => a.start_time.localeCompare(b.start_time));
+    await Promise.all(
+      sorted.map((s, i) => (s.sort_order === i ? null : supabase.from("shifts").update({ sort_order: i }).eq("id", s.id)))
+    );
     loadAll();
   }
 
@@ -669,26 +694,52 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Dienstplan und Backplan werden bewusst unabhängig voneinander
   // veröffentlicht — das eine hat mit dem anderen nichts zu tun.
   async function publishShiftMonth() {
-    const { data: publishedShifts } = await supabase
+    const { data: publishedShifts, error } = await supabase
       .from("shifts")
       .update({ status: "published" })
       .in("date", svcDateStrs)
       .eq("status", "draft")
       .select("employee_id");
+    if (error) {
+      alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
+      return;
+    }
     const notifyIds = Array.from(
       new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
     );
     await notifyEmployees(notifyIds, "shift_published", `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`);
+    // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
+    // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
+    // Neuladen der Liste keine sichtbare Bestätigung.
+    alert(
+      publishedShifts.length > 0
+        ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
+        : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
+    );
     loadAll();
   }
 
   async function publishBakeWeek(force = false) {
     if (!force && unassignedBakeEntries.length > 0) {
-      setPublishWarningAck(false);
+      setPublishWarningAck(true);
       return;
     }
-    await supabase.from("bake_plan_entries").update({ status: "published" }).in("date", bkDateStrs).eq("status", "draft");
+    const { data: publishedEntries, error } = await supabase
+      .from("bake_plan_entries")
+      .update({ status: "published" })
+      .in("date", bkDateStrs)
+      .eq("status", "draft")
+      .select("id");
+    if (error) {
+      alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
+      return;
+    }
     setPublishWarningAck(false);
+    alert(
+      publishedEntries.length > 0
+        ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
+        : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
+    );
     loadAll();
   }
 
@@ -828,7 +879,10 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                   type="button"
                   className="ghost"
                   style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" }}
-                  onClick={() => setExpandedShiftDay((prev) => (prev === dateStr ? null : dateStr))}
+                  onClick={() => {
+                    setExpandedShiftDay(expanded ? null : dateStr);
+                    if (expanded) reorderShiftsByStartTime(dateStr);
+                  }}
                 >
                   <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
                     <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>
@@ -933,25 +987,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                         <button className="ghost" onClick={() => addShift(dateStr, "frueh", "service")}>+ Früh/Service</button>{" "}
                       </>
                     )}
-                    {dow === 5 ? (
-                      <span className="row-actions" style={{ display: "inline-flex" }}>
-                        <select
-                          value={spaetTimeByDate[dateStr] ?? "13:00"}
-                          onChange={(e) => setSpaetTimeByDate((prev) => ({ ...prev, [dateStr]: e.target.value }))}
-                        >
-                          <option value="13:00">13:00 Uhr</option>
-                          <option value="14:00">14:00 Uhr</option>
-                        </select>
-                        <button
-                          className="ghost"
-                          onClick={() => addShift(dateStr, "spaet", null, spaetTimeByDate[dateStr] ?? "13:00", "18:00")}
-                        >
-                          + Spät
-                        </button>
-                      </span>
-                    ) : (
-                      <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
-                    )}
+                    <button className="ghost" onClick={() => addShift(dateStr, "spaet", null)}>+ Spät</button>
                   </div>
                 )}
               </div>
