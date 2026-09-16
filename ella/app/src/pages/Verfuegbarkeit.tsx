@@ -57,6 +57,7 @@ type AvailabilityEntry = {
 };
 
 type SpecialDay = { date: string; label: string; service_exception: boolean; frueh_exception: boolean };
+type EitherOrPair = { id: string; date_a: string; date_b: string };
 
 // Eigener Tab statt Teil des Profils (vorher unten in Profil.tsx) — die lange
 // Tagesliste ging dort neben Profilbild/Name/Benachrichtigungen optisch
@@ -76,6 +77,13 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   // 0017_lock_availability_after_publish.sql), damit niemand nach der
   // Zuweisung noch unbemerkt "kann nicht" einträgt.
   const [publishedDates, setPublishedDates] = useState<Set<string>>(new Set());
+  // Entweder/Oder-Tage (Feedback: "wenn ich für Tag 1 eingeplant werde, kann
+  // ich an Tag 2 nicht oder wenn ich an Tag 2 eingeplant bin, kann ich an Tag
+  // 1 nicht") — mehrere Paare möglich, je Paar genau 2 Tage, reine
+  // Zusatzinformation für den Hinweis in der Schichtplanung (AdminPlanning.tsx).
+  const [eitherOrPairs, setEitherOrPairs] = useState<EitherOrPair[]>([]);
+  const [newPairA, setNewPairA] = useState("");
+  const [newPairB, setNewPairB] = useState("");
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -97,7 +105,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
 
   async function load() {
     setLoading(true);
-    const [entriesRes, deadlineRes, submissionRes, publishedRes] = await Promise.all([
+    const [entriesRes, deadlineRes, submissionRes, publishedRes, eitherOrRes] = await Promise.all([
       supabase.from("availability_entries").select("*").eq("employee_id", employee.id).order("day_of_week"),
       supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
       supabase
@@ -106,12 +114,14 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
         .eq("employee_id", employee.id)
         .eq("month", nextMonthStr)
         .maybeSingle(),
-      supabase.from("shifts").select("date").eq("status", "published")
+      supabase.from("shifts").select("date").eq("status", "published"),
+      supabase.from("availability_either_or_pairs").select("id,date_a,date_b").eq("employee_id", employee.id)
     ]);
     setEntries((entriesRes.data as AvailabilityEntry[]) || []);
     setDeadline(deadlineRes.data?.deadline ?? null);
     setSubmittedAt(submissionRes.data?.submitted_at ?? null);
     setPublishedDates(new Set(((publishedRes.data as { date: string }[]) || []).map((r) => r.date)));
+    setEitherOrPairs((eitherOrRes.data as EitherOrPair[]) || []);
     setLoading(false);
   }
 
@@ -165,6 +175,23 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     load();
   }
 
+  async function addEitherOrPair() {
+    if (!newPairA || !newPairB || newPairA === newPairB) return;
+    await supabase.from("availability_either_or_pairs").insert({
+      employee_id: employee.id,
+      date_a: newPairA,
+      date_b: newPairB
+    });
+    setNewPairA("");
+    setNewPairB("");
+    load();
+  }
+
+  async function deleteEitherOrPair(id: string) {
+    await supabase.from("availability_either_or_pairs").delete().eq("id", id);
+    load();
+  }
+
   // Ein gesperrter Tag (Dienstplan schon veröffentlicht) zählt nicht als
   // "offen" — sonst könnte das Einreichen nie vollständig werden, falls der
   // Admin einen Tag veröffentlicht, bevor die Person ihn ausgefüllt hat.
@@ -173,6 +200,9 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     (d) => !oneTimeByDate.has(toDateStr(d)) && !publishedDates.has(toDateStr(d))
   ).length;
   const isLate = deadline ? new Date() > new Date(deadline + "T23:59:59") : false;
+  // Nur noch offene Tage stehen für neue Entweder/Oder-Paare zur Auswahl —
+  // ein bereits veröffentlichter Tag ist ohnehin nicht mehr planbar.
+  const openDates = relevantDates.filter((d) => !publishedDates.has(toDateStr(d)));
 
   async function submitMonth() {
     await supabase
@@ -269,6 +299,56 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
             Verfügbarkeit für {monthLabel(nextMonth)} einreichen
           </button>
         )}
+      </div>
+
+      <div className="card">
+        <h3>Entweder/Oder-Tage</h3>
+        <p className="hint">
+          Zwei Tage, die sich gegenseitig ausschließen: wirst du für einen der beiden eingeplant, gilt der andere in
+          der Schichtplanung als "kann nicht" — nur ein Hinweis für den Admin, keine harte Sperre.
+        </p>
+        {eitherOrPairs.length === 0 ? (
+          <p style={{ color: "var(--ink-soft)" }}>Noch keine Entweder/Oder-Tage angelegt.</p>
+        ) : (
+          eitherOrPairs.map((p) => (
+            <div className="shift-line" key={p.id}>
+              <span>
+                {formatDayMonth(parseDateStr(p.date_a))} oder {formatDayMonth(parseDateStr(p.date_b))}
+              </span>
+              <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteEitherOrPair(p.id)}>
+                ✕
+              </button>
+            </div>
+          ))
+        )}
+        <div className="row-actions" style={{ marginTop: "0.6rem", flexWrap: "wrap" }}>
+          <select value={newPairA} onChange={(e) => setNewPairA(e.target.value)}>
+            <option value="">Tag 1…</option>
+            {openDates.map((d) => {
+              const dateStr = toDateStr(d);
+              return (
+                <option key={dateStr} value={dateStr}>
+                  {formatDayMonth(d)}
+                </option>
+              );
+            })}
+          </select>
+          <span>oder</span>
+          <select value={newPairB} onChange={(e) => setNewPairB(e.target.value)}>
+            <option value="">Tag 2…</option>
+            {openDates.map((d) => {
+              const dateStr = toDateStr(d);
+              return (
+                <option key={dateStr} value={dateStr}>
+                  {formatDayMonth(d)}
+                </option>
+              );
+            })}
+          </select>
+          <button disabled={!newPairA || !newPairB || newPairA === newPairB} onClick={addEitherOrPair}>
+            Verknüpfen
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -38,6 +38,12 @@ type AvailabilityRow = {
   from_time: string | null;
   to_time: string | null;
 };
+// Mitarbeiter können mehrere solcher Paare anlegen (Verfuegbarkeit.tsx,
+// Feedback: "wenn ich für Tag 1 eingeplant werde, kann ich an Tag 2 nicht
+// oder wenn ich an Tag 2 eingeplant bin, kann ich an Tag 1 nicht") — reine
+// Zusatzinformation für den dezenten Hinweis in availabilityFor(), keine
+// harte Sperre.
+type EitherOrPair = { employee_id: string; date_a: string; date_b: string };
 type StaffingReq = {
   id: string;
   day_of_week: number;
@@ -148,6 +154,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [planWeek, setPlanWeek] = useState(() => weekStartOf(new Date()));
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
+  const [eitherOrPairs, setEitherOrPairs] = useState<EitherOrPair[]>([]);
   const [requirements, setRequirements] = useState<StaffingReq[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [cakeItems, setCakeItems] = useState<CakeItem[]>([]);
@@ -265,6 +272,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     const [
       emp,
       avail,
+      eitherOr,
       req,
       sh,
       cakes,
@@ -281,6 +289,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     ] = await Promise.all([
       supabase.from("employees").select("id,name,role,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
+      supabase.from("availability_either_or_pairs").select("employee_id,date_a,date_b"),
       supabase.from("staffing_requirements").select("*"),
       supabase.from("shifts").select("*").in("date", svcDateStrs).order("sort_order").order("created_at"),
       supabase.from("cake_items").select("*").order("name"),
@@ -318,6 +327,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
     setAvailability((avail.data as AvailabilityRow[]) || []);
+    setEitherOrPairs((eitherOr.data as EitherOrPair[]) || []);
     setRequirements((req.data as StaffingReq[]) || []);
     setShifts((sh.data as ShiftRow[]) || []);
     setCakeItems((cakes.data as CakeItem[]) || []);
@@ -573,7 +583,24 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Früh"/"nur Spät" aus dem Profil) zusätzlich, ob die konkrete Schicht in
   // dieses Fenster fällt — ohne Fenster (ganztags) zählt die Verfügbarkeit
   // für jede Schicht des Tages.
-  function availabilityFor(employeeId: string, date: Date, dateStr: string, shiftStartTime: string): "kann" | "kann nicht" | "unbekannt" {
+  function availabilityFor(employeeId: string, date: Date, dateStr: string, shiftStartTime: string): string {
+    // Entweder/Oder-Tage (Verfuegbarkeit.tsx, Feedback: "wenn ich für Tag 1
+    // eingeplant werde, kann ich an Tag 2 nicht oder wenn ich an Tag 2
+    // eingeplant bin, kann ich an Tag 1 nicht") greifen erst, sobald einer der
+    // beiden Tage bereits mit einer Schicht belegt ist — vorher ändert das
+    // Paar an der normal eingetragenen Verfügbarkeit nichts.
+    const pair = eitherOrPairs.find(
+      (p) => p.employee_id === employeeId && (p.date_a === dateStr || p.date_b === dateStr)
+    );
+    if (pair) {
+      const otherDate = pair.date_a === dateStr ? pair.date_b : pair.date_a;
+      if (shifts.some((s) => s.employee_id === employeeId && s.date === otherDate)) {
+        return "kann nicht – Entweder/Oder-Tag";
+      }
+      if (shifts.some((s) => s.employee_id === employeeId && s.date === dateStr)) {
+        return "kann – Entweder/Oder-Tag";
+      }
+    }
     const dow = isoDayOfWeek(date);
     const entry =
       availability.find((a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr) ??
