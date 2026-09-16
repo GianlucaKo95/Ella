@@ -54,6 +54,7 @@ type ShiftRow = {
   end_time: string;
   employee_id: string | null;
   status: "draft" | "published";
+  sort_order: number;
 };
 type CakeItem = {
   id: string;
@@ -252,11 +253,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // weiterhin in der zweiten Gruppe Kuchen weiterhin angezeigt werden."
   const favoriteCakeItems = useMemo(() => cakeItems.filter((c) => c.is_favorite), [cakeItems]);
 
-  // `shifts`/`bake_plan_entries` bekommen bewusst ein explizites `.order("created_at")`
+  // `shifts`/`bake_plan_entries` bekommen bewusst ein explizites `.order(...)`
   // — ohne eigene Sortierung ist die von Postgres zurückgegebene Reihenfolge
   // nicht garantiert stabil und kann sich nach einem UPDATE ändern (Feedback:
   // "wenn ich zwei Schichten hinzugefügt habe und die erste eintrage, rutscht
-  // diese dann an die zweite Position").
+  // diese dann an die zweite Position"). `shifts.sort_order` startet als reine
+  // Anlagereihenfolge, wird aber beim Zuklappen eines Tages einmalig nach
+  // Startzeit neu vergeben (`reorderShiftsByStartTime()`), `created_at` bleibt
+  // nur als Tiebreaker bei gleichem `sort_order`.
   async function loadAll() {
     const [
       emp,
@@ -278,7 +282,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       supabase.from("employees").select("id,name,role,active,bake_team_id").eq("active", true),
       supabase.from("availability_entries").select("*"),
       supabase.from("staffing_requirements").select("*"),
-      supabase.from("shifts").select("*").in("date", svcDateStrs).order("created_at"),
+      supabase.from("shifts").select("*").in("date", svcDateStrs).order("sort_order").order("created_at"),
       supabase.from("cake_items").select("*").order("name"),
       supabase.from("cake_recipe_ingredients").select("*").order("sort_order"),
       supabase.from("bake_plan_entries").select("*").in("date", bkDateStrs).order("created_at"),
@@ -592,14 +596,32 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     // Startzeit bleibt danach wie jede andere Schicht frei änderbar.
     const dow = isoDayOfWeek(parseDateStr(date));
     const spaetStart = dow === 3 || dow === 4 ? "11:30" : "13:00";
+    // Früh/Küche startet um 07:00, Früh/Service erst um 08:30 (Feedback:
+    // "Früh Küche fängt immer um 07:00 Uhr an und Früh Service um 08:30 Uhr").
+    const fruehStart = role_tag === "service" ? "08:30" : "07:00";
+    const existingCount = shifts.filter((s) => s.date === date).length;
     await supabase.from("shifts").insert({
       date,
       shift_type,
       role_tag,
-      start_time: shift_type === "frueh" ? "07:00" : spaetStart,
+      start_time: shift_type === "frueh" ? fruehStart : spaetStart,
       end_time: shift_type === "frueh" ? "13:00" : "18:00",
-      status: "draft"
+      status: "draft",
+      sort_order: existingCount
     });
+    loadAll();
+  }
+
+  // Reiht die Schichten eines Tages neu nach Startzeit ein (statt weiterhin
+  // nach Anlagereihenfolge) — Feedback: "wenn der Tag zugeklappt wird, sollen
+  // die Schichten im Hintergrund nach Startzeitpunkt geordnet werden". Läuft
+  // bewusst erst beim Zuklappen (nicht laufend während der Bearbeitung), damit
+  // eine Schicht nicht mitten im Bearbeiten unter der Maus wegspringt.
+  async function reorderShiftsByStartTime(date: string) {
+    const sorted = [...shifts.filter((s) => s.date === date)].sort((a, b) => a.start_time.localeCompare(b.start_time));
+    await Promise.all(
+      sorted.map((s, i) => (s.sort_order === i ? null : supabase.from("shifts").update({ sort_order: i }).eq("id", s.id)))
+    );
     loadAll();
   }
 
@@ -843,7 +865,10 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                   type="button"
                   className="ghost"
                   style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" }}
-                  onClick={() => setExpandedShiftDay((prev) => (prev === dateStr ? null : dateStr))}
+                  onClick={() => {
+                    setExpandedShiftDay(expanded ? null : dateStr);
+                    if (expanded) reorderShiftsByStartTime(dateStr);
+                  }}
                 >
                   <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
                     <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>
