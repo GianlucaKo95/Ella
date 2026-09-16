@@ -47,6 +47,17 @@ export function timeToMinutes(t: string): number {
   return h * 60 + m;
 }
 
+// "HH:MM" oder "HH:MM:SS" -> ["HH", "MM"], zweistellig — für Stunde/Minute
+// getrennt als <select> dargestellte Zeiten (bewusst kein natives
+// <input type="time">: dessen 12h/24h-Anzeige folgt der Geräte-/Browser-
+// Locale, nicht dem `lang`-Attribut der Seite, und lässt sich nicht
+// erzwingen — zwei <select> garantieren überall dieselbe 24h-Darstellung,
+// analog zur bewussten <select>-Datumsauswahl bei den Sondertagen, §10).
+export function timeParts(t: string): [string, string] {
+  const [h, m] = t.split(":");
+  return [h.padStart(2, "0"), (m ?? "00").padStart(2, "0")];
+}
+
 export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
