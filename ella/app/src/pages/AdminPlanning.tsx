@@ -708,6 +708,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
     );
     await notifyEmployees(notifyIds, "shift_published", `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`);
+    // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
+    // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
+    // Neuladen der Liste keine sichtbare Bestätigung.
+    alert(
+      publishedShifts.length > 0
+        ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
+        : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
+    );
     loadAll();
   }
 
@@ -716,16 +724,22 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       setPublishWarningAck(true);
       return;
     }
-    const { error } = await supabase
+    const { data: publishedEntries, error } = await supabase
       .from("bake_plan_entries")
       .update({ status: "published" })
       .in("date", bkDateStrs)
-      .eq("status", "draft");
+      .eq("status", "draft")
+      .select("id");
     if (error) {
       alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
       return;
     }
     setPublishWarningAck(false);
+    alert(
+      publishedEntries.length > 0
+        ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
+        : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
+    );
     loadAll();
   }
 
