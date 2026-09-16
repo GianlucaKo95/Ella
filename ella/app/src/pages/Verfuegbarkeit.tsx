@@ -81,9 +81,13 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   // ich an Tag 2 nicht oder wenn ich an Tag 2 eingeplant bin, kann ich an Tag
   // 1 nicht") — mehrere Paare möglich, je Paar genau 2 Tage, reine
   // Zusatzinformation für den Hinweis in der Schichtplanung (AdminPlanning.tsx).
+  // Jeder Tag kann höchstens Teil eines Paares sein.
   const [eitherOrPairs, setEitherOrPairs] = useState<EitherOrPair[]>([]);
-  const [newPairA, setNewPairA] = useState("");
-  const [newPairB, setNewPairB] = useState("");
+  // Checkbox an einem Tag ohne (noch) gewählten Partner-Tag — rein lokaler
+  // UI-Zustand, damit die Checkbox schon gesetzt aussieht, bevor ein Paar in
+  // der Datenbank existiert (Feedback: "als Check-Box an den Tag anfügen und
+  // wenn der Haken gesetzt ist ein Feld mit dem zu verknüpfenden Tag öffnet").
+  const [pendingEitherOr, setPendingEitherOr] = useState<Set<string>>(new Set());
 
   const nextMonth = nextMonthStart(new Date());
   const nextMonthStr = toMonthStr(nextMonth);
@@ -149,6 +153,14 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   const relevantDates = mergeUniqueDates(monthDaysMatching(nextMonth, requiredDays), extraServiceDates);
   const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
   const oneTimeByDate = new Map(oneTimeEntries.map((e) => [e.specific_date as string, e]));
+  // Jeder Tag steckt in höchstens einem Paar — als Map von jedem der beiden
+  // Tage auf das gemeinsame Paar, damit sich der Partner-Tag pro Zeile ohne
+  // weitere Suche nachschlagen lässt.
+  const pairByDate = new Map<string, EitherOrPair>();
+  for (const p of eitherOrPairs) {
+    pairByDate.set(p.date_a, p);
+    pairByDate.set(p.date_b, p);
+  }
 
   function choiceFor(entry: AvailabilityEntry | undefined): DayChoice | null {
     if (!entry) return null;
@@ -175,20 +187,21 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     load();
   }
 
-  async function addEitherOrPair() {
-    if (!newPairA || !newPairB || newPairA === newPairB) return;
-    await supabase.from("availability_either_or_pairs").insert({
-      employee_id: employee.id,
-      date_a: newPairA,
-      date_b: newPairB
-    });
-    setNewPairA("");
-    setNewPairB("");
-    load();
-  }
-
-  async function deleteEitherOrPair(id: string) {
-    await supabase.from("availability_either_or_pairs").delete().eq("id", id);
+  // Ersetzt (löscht zuerst) ein eventuell schon bestehendes Paar für diesen
+  // Tag und legt bei gewähltem Partner-Tag ein neues an — ein leerer
+  // `partnerDateStr` löscht nur, ohne ein neues Paar anzulegen.
+  async function setEitherOrPartner(dateStr: string, partnerDateStr: string) {
+    const existing = pairByDate.get(dateStr);
+    if (existing) {
+      await supabase.from("availability_either_or_pairs").delete().eq("id", existing.id);
+    }
+    if (partnerDateStr) {
+      await supabase.from("availability_either_or_pairs").insert({
+        employee_id: employee.id,
+        date_a: dateStr,
+        date_b: partnerDateStr
+      });
+    }
     load();
   }
 
@@ -246,6 +259,9 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
               const specialDay = specialByDate.get(dateStr);
               const hasFrueh = fruehDays.includes(isoDayOfWeek(d)) || specialDay?.frueh_exception === true;
               const locked = publishedDates.has(dateStr);
+              const pair = pairByDate.get(dateStr);
+              const partnerDate = pair ? (pair.date_a === dateStr ? pair.date_b : pair.date_a) : "";
+              const eitherOrChecked = !!pair || pendingEitherOr.has(dateStr);
               return (
                 <div className="avail-row" key={dateStr}>
                   <span className="avail-row-day">
@@ -289,6 +305,50 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
                       )}
                     </div>
                   )}
+                  {!locked && (
+                    <div className="row-actions" style={{ width: "100%", flexWrap: "wrap" }}>
+                      <label className="hint" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                        <input
+                          type="checkbox"
+                          checked={eitherOrChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setPendingEitherOr((prev) => new Set(prev).add(dateStr));
+                            } else {
+                              setPendingEitherOr((prev) => {
+                                const next = new Set(prev);
+                                next.delete(dateStr);
+                                return next;
+                              });
+                              if (pair) setEitherOrPartner(dateStr, "");
+                            }
+                          }}
+                        />
+                        Entweder/Oder-Tag
+                      </label>
+                      {eitherOrChecked && (
+                        <select value={partnerDate} onChange={(e) => setEitherOrPartner(dateStr, e.target.value)}>
+                          <option value="">Tag wählen…</option>
+                          {openDates
+                            .filter((other) => {
+                              const otherStr = toDateStr(other);
+                              if (otherStr === dateStr) return false;
+                              const otherPair = pairByDate.get(otherStr);
+                              // Tage, die schon Teil eines ANDEREN Paares sind, nicht anbieten.
+                              return !otherPair || otherPair === pair;
+                            })
+                            .map((other) => {
+                              const otherStr = toDateStr(other);
+                              return (
+                                <option key={otherStr} value={otherStr}>
+                                  {formatDayMonth(other)}
+                                </option>
+                              );
+                            })}
+                        </select>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -299,56 +359,6 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
             Verfügbarkeit für {monthLabel(nextMonth)} einreichen
           </button>
         )}
-      </div>
-
-      <div className="card">
-        <h3>Entweder/Oder-Tage</h3>
-        <p className="hint">
-          Zwei Tage, die sich gegenseitig ausschließen: wirst du für einen der beiden eingeplant, gilt der andere in
-          der Schichtplanung als "kann nicht" — nur ein Hinweis für den Admin, keine harte Sperre.
-        </p>
-        {eitherOrPairs.length === 0 ? (
-          <p style={{ color: "var(--ink-soft)" }}>Noch keine Entweder/Oder-Tage angelegt.</p>
-        ) : (
-          eitherOrPairs.map((p) => (
-            <div className="shift-line" key={p.id}>
-              <span>
-                {formatDayMonth(parseDateStr(p.date_a))} oder {formatDayMonth(parseDateStr(p.date_b))}
-              </span>
-              <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteEitherOrPair(p.id)}>
-                ✕
-              </button>
-            </div>
-          ))
-        )}
-        <div className="row-actions" style={{ marginTop: "0.6rem", flexWrap: "wrap" }}>
-          <select value={newPairA} onChange={(e) => setNewPairA(e.target.value)}>
-            <option value="">Tag 1…</option>
-            {openDates.map((d) => {
-              const dateStr = toDateStr(d);
-              return (
-                <option key={dateStr} value={dateStr}>
-                  {formatDayMonth(d)}
-                </option>
-              );
-            })}
-          </select>
-          <span>oder</span>
-          <select value={newPairB} onChange={(e) => setNewPairB(e.target.value)}>
-            <option value="">Tag 2…</option>
-            {openDates.map((d) => {
-              const dateStr = toDateStr(d);
-              return (
-                <option key={dateStr} value={dateStr}>
-                  {formatDayMonth(d)}
-                </option>
-              );
-            })}
-          </select>
-          <button disabled={!newPairA || !newPairB || newPairA === newPairB} onClick={addEitherOrPair}>
-            Verknüpfen
-          </button>
-        </div>
       </div>
     </div>
   );
