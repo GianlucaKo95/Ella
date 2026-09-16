@@ -189,6 +189,30 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   registriert den Worker entsprechend selbst über `virtual:pwa-register`
   (`registerSW({ immediate: true })`) statt über das vorher injizierte
   Standard-Skript.
+- **`index.html`/`runtime-config.js` bewusst nicht vorgecacht** (Folge-Feedback
+  nach dem `nginx.conf`-Fix unten: "Ich hab immer noch den fehlgeschlagenen
+  Refresh. Der Bildschirm bleibt dann weiß."): `self.__WB_MANIFEST` enthält
+  standardmäßig auch `index.html` und `runtime-config.js` mit einem
+  Inhalts-Hash als `revision` — `precacheAndRoute` bedient eine URL dann aus
+  der eigenen Cache-Storage, sobald sie einmal installiert wurde, **komplett
+  unabhängig vom `Cache-Control`-Header** (der nur den normalen HTTP-Cache des
+  Browsers steuert, nicht diese SW-eigene Route). Der `nginx.conf`-Fix allein
+  half deshalb nicht: eine bereits aktive, alte Service-Worker-Version lieferte
+  bei jedem Refresh weiterhin ihre alte, vorgecachte `index.html` mit Verweisen
+  auf durchs nächste Add-on-Update längst gelöschte Asset-Dateinamen — weißer
+  Bildschirm. `sw.ts` filtert beide URLs jetzt aus dem Manifest heraus, bevor
+  es an `precacheAndRoute` übergeben wird; beide Requests laufen dadurch immer
+  übers Netzwerk (und damit über nginx' `no-store`). Die inhalts-gehashten
+  `/assets`-Dateien bleiben weiterhin vorgecacht — nur die zwei Dateien, die
+  sich bei jedem Deploy/Add-on-Start ändern können, nicht mehr.
+- **`ErrorBoundary`** (`components/ErrorBoundary.tsx`, um `<App />` in
+  `main.tsx`): ohne Error Boundary lässt jeder unabgefangene Render-Fehler
+  React den gesamten Baum kommentarlos abbauen — die Seite bleibt dann
+  komplett weiß, ganz ohne Hinweis. Fängt jetzt jeden Render-Fehler ab und
+  zeigt stattdessen einen Hinweistext mit einem "Neu laden"-Button, unabhängig
+  von dessen Ursache. Deckt nur Fehler während des Renderns ab (React-Limit),
+  nicht z. B. einen Fehler beim Modul-Import selbst (dagegen hilft der
+  Vorcache-Fix oben).
 - **`nginx.conf` Cache-Control** (Feedback: "Ein Refresh lässt das System
   abstürzen und auch der Database Sync und im allgemeinen ist das System sehr
   langsam"): jedes Add-on-Update baut `/www` im Dockerfile komplett neu
