@@ -5,6 +5,7 @@ import {
   RELEVANT_DAYS,
   nextMonthStart,
   monthLabel,
+  monthStartOf,
   monthDaysMatching,
   mergeUniqueDates,
   isoDayOfWeek,
@@ -260,6 +261,22 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   // ein bereits veröffentlichter Tag ist ohnehin nicht mehr planbar.
   const openDates = relevantDates.filter((d) => !publishedDates.has(toDateStr(d)));
 
+  // Feedback: "ab Freigabe Schichtplan sollte es den MA möglich sein ihre
+  // Verfügbarkeiten für den nächsten Monat einzugeben" — vorher konnte die
+  // Verfügbarkeit für den Folgemonat rein datumsbasiert jederzeit eingetragen
+  // werden, unabhängig davon, ob der Admin den laufenden Monat überhaupt
+  // schon veröffentlicht hat. Als Freigabe-Signal zählt (wie beim Sperren
+  // einzelner Tage oben) mindestens eine veröffentlichte Schicht im
+  // laufenden Kalendermonat — ein exaktes "vollständig veröffentlicht"
+  // ließe sich ohne weiteren Zustand nicht robust bestimmen, und in der
+  // Praxis veröffentlicht der Admin einen Monat ohnehin in einem Zug.
+  const currentMonth = monthStartOf(new Date());
+  const currentMonthLabel = monthLabel(currentMonth);
+  const currentMonthPublished = Array.from(publishedDates).some((dateStr) => {
+    const d = parseDateStr(dateStr);
+    return d.getFullYear() === currentMonth.getFullYear() && d.getMonth() === currentMonth.getMonth();
+  });
+
   async function submitMonth() {
     await supabase
       .from("availability_submissions")
@@ -272,27 +289,36 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     <div>
       <h2>Verfügbarkeit</h2>
 
-      <div className={`card ${submittedAt ? "" : isLate ? "card-attention" : ""}`}>
+      <div className={`card ${submittedAt || !currentMonthPublished ? "" : isLate ? "card-attention" : ""}`}>
         <h3>Verfügbarkeit für {monthLabel(nextMonth)}</h3>
-        {deadline && (
-          <p style={{ margin: "0 0 8px" }}>
-            Stichtag: <strong>{new Date(deadline).toLocaleDateString("de-DE")}</strong>
-            {isLate && !submittedAt && <span style={{ color: "var(--attention)" }}> — überfällig!</span>}
-          </p>
-        )}
-        {submittedAt ? (
-          <p>
-            ✅ Eingereicht am {new Date(submittedAt).toLocaleDateString("de-DE")}. Du kannst deine Angaben unten
-            jederzeit noch ändern, bis der Admin den Dienstplan erstellt — jede Änderung wird sofort gespeichert.
+        {!loading && !currentMonthPublished ? (
+          <p style={{ color: "var(--ink-soft)" }}>
+            Die Verfügbarkeit für {monthLabel(nextMonth)} kann erst eingetragen werden, sobald der Dienstplan für{" "}
+            {currentMonthLabel} veröffentlicht ist.
           </p>
         ) : (
-          <p>
-            {isComplete
-              ? "Für alle Tage unten ist \"kann\"/\"kann nicht\" eingetragen — bereit zum Einreichen."
-              : `Bitte für die ${missingCount} noch offenen Tage unten "kann"/"kann nicht" auswählen, bevor du einreichst.`}
-          </p>
+          <>
+            {deadline && (
+              <p style={{ margin: "0 0 8px" }}>
+                Stichtag: <strong>{new Date(deadline).toLocaleDateString("de-DE")}</strong>
+                {isLate && !submittedAt && <span style={{ color: "var(--attention)" }}> — überfällig!</span>}
+              </p>
+            )}
+            {submittedAt ? (
+              <p>
+                ✅ Eingereicht am {new Date(submittedAt).toLocaleDateString("de-DE")}. Du kannst deine Angaben unten
+                jederzeit noch ändern, bis der Admin den Dienstplan erstellt — jede Änderung wird sofort gespeichert.
+              </p>
+            ) : (
+              <p>
+                {isComplete
+                  ? "Für alle Tage unten ist \"kann\"/\"kann nicht\" eingetragen — bereit zum Einreichen."
+                  : `Bitte für die ${missingCount} noch offenen Tage unten "kann"/"kann nicht" auswählen, bevor du einreichst.`}
+              </p>
+            )}
+          </>
         )}
-        {loading ? (
+        {!currentMonthPublished ? null : loading ? (
           <p>Lädt…</p>
         ) : (
           <div>
@@ -419,7 +445,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
             })}
           </div>
         )}
-        {!submittedAt && (
+        {currentMonthPublished && !submittedAt && (
           <button onClick={submitMonth} disabled={!isComplete} style={{ marginTop: "0.8rem" }}>
             Verfügbarkeit für {monthLabel(nextMonth)} einreichen
           </button>
