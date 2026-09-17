@@ -653,7 +653,8 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   }
 
   async function assignShift(id: string, employee_id: string | null) {
-    await supabase.from("shifts").update({ employee_id }).eq("id", id);
+    const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
+    if (error) alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
     loadAll();
   }
 
@@ -663,12 +664,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // `log_shift_change` (Migration 0008) protokolliert eine Zeitänderung an
   // einer schon veröffentlichten Schicht automatisch im Änderungsprotokoll.
   async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
-    await supabase.from("shifts").update(patch).eq("id", id);
+    const { error } = await supabase.from("shifts").update(patch).eq("id", id);
+    if (error) alert(`Zeit konnte nicht geändert werden: ${error.message}`);
     loadAll();
   }
 
   async function deleteShift(id: string) {
-    await supabase.from("shifts").delete().eq("id", id);
+    const { error } = await supabase.from("shifts").delete().eq("id", id);
+    if (error) alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
     loadAll();
   }
 
@@ -690,12 +693,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   }
 
   async function updateBakeEntry(id: string, patch: Partial<BakeEntryRow>) {
-    await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+    const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+    if (error) alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
     loadAll();
   }
 
   async function deleteBakeEntry(id: string) {
-    await supabase.from("bake_plan_entries").delete().eq("id", id);
+    const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
+    if (error) alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
     loadAll();
   }
 
