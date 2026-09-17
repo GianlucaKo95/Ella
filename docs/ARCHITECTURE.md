@@ -248,6 +248,42 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   `reset-password`/`delete-employee`), Berechtigung wird im Code anhand des
   mitgeschickten Bearer-Tokens geprüft.
 
+  **Sprungziel je Benachrichtigung** (`notifications_log.link`, Migration
+  `0030_notification_links.sql`, Feedback: "wenn ich oben auf die Glocke
+  tippe und dann auf die Benachrichtigung wäre es schön wenn die
+  Benachrichtigung dann gelesen ist und ich in die Kalenderansicht oder
+  Backansicht springe um die es geht. Also richtige Woche oder richtiger
+  Monat"): `notifyEmployees()`/`send-push` nehmen jetzt einen optionalen
+  `link` (relativer App-Pfad, z. B. `/kalender?date=2026-09-01`) entgegen,
+  der pro Benachrichtigung in `notifications_log` mitgeschrieben und auch als
+  `url` im Web-Push-Payload verwendet wird (ersetzt das bisherige feste
+  `"/home"`). `publishShiftMonth()` setzt ihn auf `/kalender?date=${toMonthStr(planMonth)}`
+  — den ersten Tag des veröffentlichten Monats. Die Glocke (`NotificationBell.tsx`)
+  navigiert beim Antippen einer Benachrichtigung mit gesetztem `link` per
+  `useNavigate()` dorthin (zusätzlich zum bisherigen "als gelesen markieren");
+  `Kalender.tsx` liest dafür einen `date`-Query-Parameter beim Laden aus und
+  initialisiert Monat **und** ausgewählten Tag darüber statt mit dem
+  aktuellen Monat/heute. Bewusst nicht angefasst: ein bereits offener Tab
+  reagiert auf einen nativen Push-Klick weiterhin nur mit `focus()` statt
+  zusätzlich zum Sprungziel zu navigieren (`sw.ts`, `notificationclick`) —
+  das würde eine `postMessage`-Brücke zwischen Service Worker und offener
+  Seite brauchen; nur das neu geöffnete Fenster (kein Tab bereits offen)
+  nutzt `url` schon heute.
+
+  **Backplan-Veröffentlichung benachrichtigt jetzt auch** (Feedback: "Die
+  Backplanung Benachrichtigung muss noch ergänzt werden" — ursprünglich löste
+  nur `publishShiftMonth()` eine Benachrichtigung aus, `bake_plan_published`
+  war zwar seit Migration `0001_init.sql` als Typ vorbereitet und in
+  `send-push`/`TITLE_BY_TYPE` fertig verdrahtet, aber nie aufgerufen):
+  `publishBakeWeek()` ruft jetzt ebenfalls `notifyEmployees()` auf. Backeinträge
+  werden über die ganze Truppe (`bake_team_id`) zugewiesen, nicht pro Person —
+  Ziel sind deshalb alle Mitglieder jeder Truppe, die mindestens einen
+  veröffentlichten Eintrag dieser Woche bekommen hat (ein Backeintrag ohne
+  Truppe betrifft niemanden). `link` ist schlicht `/backen` ohne Datums-Parameter,
+  da `Backen.tsx` (anders als der Kalender) keine eigene Wochen-/Monatsnavigation
+  hat, sondern immer alle veröffentlichten Termine ab heute zeigt — "richtige
+  Woche" ist dort implizit immer der Fall.
+
   **Bugfix: Veröffentlichen fühlte sich langsam an** (Feedback: "Das
   Veröffentlichen des Plans dauert bis zu 20 Sekunden bis die Meldung kommt
   das X Schichten veröffentlicht sind"): zwei unabhängige Ursachen. Erstens
@@ -306,8 +342,12 @@ zugeklappt Titel + eine knappe Zusammenfassung des aktuellen Stands (z. B. "3 Tr
 - **Home** (`/home`): "Heute im Dienst" (alle veröffentlichten Schichten des heutigen Tages, nicht nur die eigene); offene/abgeschickte Schichttausch-Anfragen (eingehend: Annehmen/Ablehnen; ausgehend: Status); "Meine Woche" (rollierende 7-Tage-Ansicht ab heute, je Tag die eigene Schicht oder "frei", mit direktem "Tauschen"-Button je Schicht — keine Notwendigkeit, dafür erst in den Kalender zu wechseln); falls einer Back-Truppe zugeordnet, zusätzlich deren nächste Backtermine; Hinweiskarte, falls die Verfügbarkeit für den kommenden Monat noch nicht eingereicht wurde (verlinkt in den Verfügbarkeit-Tab, dismissable, **nur für Mitarbeiter** — Admins müssen keine Verfügbarkeit abgeben, s. u.); "Aktuelles" mit den News aus `announcements` — **nur Admins können posten** (UI blendet das Formular für Mitarbeiter aus, RLS `announcements_write_admin` erzwingt es zusätzlich serverseitig), optional mit Bild (`image_url`, Storage-Bucket `announcement-images`, Migration `0023_announcement_images.sql` — öffentlich lesbar, Schreiben admin-exklusiv, kein Ordner pro Person nötig da eh nur Admins schreiben). Posten löst eine Benachrichtigung an alle übrigen aktiven Mitarbeiter aus.
 - **Kalender** (`/kalender`): Apple-Kalender-artige Monatsansicht aller veröffentlichten Schichten. Tage, die laut `app_settings.service_days` kein Service-Tag sind, werden schraffiert/gedimmt dargestellt statt wie ein leerer Tag auszusehen (Detailkarte zeigt dort "Café geschlossen"). Eigene Schicht wird als gefüllter Punkt (Früh) bzw. Ring (Spät) dargestellt, ein eigener Backtermin (eigene Truppe) als rautenförmiger Punkt — alles auf einen Blick ohne den Tag antippen zu müssen; mehr als 3 Kolleg:innen an einem Tag werden als "+N" statt als einzelne Punkte angezeigt. Beim Öffnen ist der heutige Tag bereits ausgewählt. Klick auf einen Tag zeigt die Details inkl. eines "Tauschen"-Buttons auf eigenen Schichten (öffnet eine Kollegen-Auswahl, legt eine `shift_swap_requests`-Zeile an; warnt per `is_colleague_available` dezent, falls der gewählte Kollege laut eigener Angabe an dem Tag nicht kann — keine harte Sperre). Stat-Kacheln zeigen die voraussichtlichen eigenen Stunden und die Anzahl eigener Schichten **im admin-eingestellten Abrechnungszeitraum** (§8), nicht im angezeigten Kalendermonat. ICS-Abo-Link.
 
+  **Ganztags-Erkennung** (Feedback: "Wenn jemand an einem Tag in einer Früh und spät Schicht eingeplant ist, soll das System das erkennen und einen zusätzlichen Dot für Ganztags in der Kalenderansicht haben. Muss dann auch bei der +X Ansicht im Tag angepasst werden"): bisher fand `dayShifts.find(...)` nur die *erste* eigene Schicht des Tages — eine zweite eigene Schicht (Früh **und** Spät am selben Tag, z. B. bei einer Vertretung) wurde dadurch fälschlich in `otherCount`/"+N" als Kolleg:in mitgezählt statt als eigene Schicht erkannt. Fix: alle eigenen Schichten des Tages sammeln (`ownShiftsForDay`), `otherCount` entsprechend um deren tatsächliche Anzahl reduzieren; sind sowohl Früh als auch Spät eigen dabei, wird statt der Einzel-Punkte ein eigener "Ganztags"-Punkt gezeigt (`cal-dot own ganztags` — gefüllter Punkt wie Früh plus Ring-Halo wie Spät, kombiniert beide Erkennungsmerkmale statt eines dritten, unabhängigen visuellen Codes), mit eigenem Legenden-Eintrag. Farbe bewusst **Rot** (`var(--attention)`) statt der grünen Akzentfarbe der übrigen Punkte (Folge-Feedback: "Der grüne Punkt mit Haloring setzt sich nicht stark genug von den anderen ab. Mach ihn rot.") — hebt sich dadurch klar von Früh/Spät/Kolleg:in/Backtermin ab.
+
   **Bugfix: Kalender zeigte nur Backtermine, keine Schichten** (Feedback: "Auf Home sehe ich meine nächste Schicht, aber in der Kalenderansicht wird nur die Backschicht angezeigt und weder meine Dienstplan Schichten noch die der anderen"): `shifts` hat mit `employee_id` **und** `created_by` zwei Fremdschlüssel auf `employees` — PostgRESTs implizite Einbettung `employees(name)` ist dadurch mehrdeutig ("Could not embed because more than one relationship was found") und lieferte einen Fehler statt Daten, den `.then(({ data }) => ...)` mangels `error`-Prüfung stillschweigend als leeres Array behandelte. Die parallele `bake_plan_entries`-Abfrage (keine Einbettung) lief unbeeinflusst weiter, daher blieb nur der Backtermin-Punkt sichtbar. Betraf auch die Stunden-/Schichtenzahl im Abrechnungszeitraum (gleiche Abfrage) sowie den "Heute im Dienst"-Block auf Home (§9, identische Abfrage). Fix: `employees!employee_id(name)` statt `employees(name)` — der Spalten-Hint sagt PostgREST explizit, über welchen der beiden Fremdschlüssel eingebettet werden soll (an allen drei Stellen).
 - **Verfügbarkeit** (`/verfuegbarkeit`, `pages/Verfuegbarkeit.tsx`, **nur für Mitarbeiter** — Route und Navbar-Eintrag sind für `role = 'admin'` komplett ausgeblendet): eigener Tab statt Teil des Profils (vorher dort unten in einer einzigen langen Karte — Feedback: "geht neben Profilbild/Name optisch unter"). Admins müssen laut Hausregel keine Verfügbarkeit abgeben (sie werden nur im Notfall direkt in der Schichtplanung zugewiesen, §10) — sie tauchen deshalb weder in diesem Tab noch in der "Verfügbarkeit fehlt"-Hinweiskarte auf Home noch im Verfügbarkeits-Stichtag/den Erinnerungen der Admin-Planung (§10/§11) auf.
+
+  **Notizfeld je Tag** (Feedback: "Ich bräuchte auch noch bei den Verfügbarkeiten pro Tag ein Notizfeld"): nutzt `availability_entries.note` — die Spalte existiert bereits seit Migration `0001_init.sql`, wurde bisher aber nirgends in der UI verwendet. Ein Freitextfeld je Tag (z. B. "kann erst ab 15 Uhr") ist erst editierbar, sobald für den Tag schon kann/kann nicht gewählt wurde (`disabled`, solange keine `one_time`-Zeile existiert) — sonst würde eine reine Notiz ohne explizite Wahl den Tag über `choiceFor()`/`isDayAnswered` fälschlich als beantwortet ("ganztags verfügbar") erscheinen lassen. Wie das Backanleitungs-Notizfeld in der Kuchenverwaltung (§8) unkontrolliert mit `defaultValue`/`onBlur` statt bei jedem Tastendruck zu speichern. `availabilityFor()` in AdminPlanning.tsx hängt die Notiz an ihr Ergebnis an ("kann – kann erst ab 15 Uhr"), damit sie beim Zuweisen einer Schicht sichtbar ist, statt nur auf der Verfügbarkeit-Seite selbst zu existieren.
 - **Profil** (`/profil`): eigenes Profilbild (Upload/Entfernen, siehe unten), editierbarer Anzeigename (`update_my_name`), Push-Benachrichtigungen (`PushToggleButton`), **App installieren** (`lib/pwaInstall.ts`, `usePwaInstall`) — s. u.
 - **Backen** (`/backen`, nur sichtbar für Mitarbeiter mit gesetztem `bake_team_id`, eigener Navbar-Eintrag): zeigt ausschließlich die **veröffentlichten** Backeinträge der eigenen Truppe ab heute, als aufklappbare Karten (Datum, Kuchenname, Menge), gruppiert nach `category` in zwei Abschnitte "Kuchen & Torten" und "Böden" (Feedback: "Trenne die zwei Kategorien in der Backen Ansicht für die Backtruppen auch bitte voneinander damit klar wird welche Kuchen/Torten gemacht werden müssen und welche Böden gebacken werden müssen") — ein Abschnitt wird nur gerendert, wenn er mindestens einen Eintrag hat. Aufklappen zeigt die strukturierte Zutatenliste (`cake_recipe_ingredients`, sortiert) sowie `recipe_note` (Backanleitung); ohne strukturierte Zeilen fällt die Karte auf `cake_items.ingredients` (Freitext) zurück. Ohne zugeordnete Truppe zeigt die Route gar nicht in der Navbar, ein direkter Aufruf wäre ohnehin leer.
 
@@ -342,6 +382,8 @@ zugeklappt Titel + eine knappe Zusammenfassung des aktuellen Stands (z. B. "3 Tr
     **Default-Monat springt ab dem ersten Wochenende weiter** (`defaultPlanningMonth()`, `lib/dates.ts`, Feedback: "sobald das erste Wochenende eines Monats erreicht ist soll dieser Monat nicht mehr im Planungsscreen auftauchen sondern dann der Folgemonat"): sowohl der initiale Ladezustand von `planMonth` als auch der "Heute"-Button berechnen den anzuzeigenden Monat über diese Funktion statt einfach den echten Kalendermonat zu nehmen. Ab dem ersten Samstag eines Monats (Beginn des ersten Wochenendes) gilt der Monat als "schon dran" — ab diesem Tag zeigen beide automatisch den Folgemonat. Betrifft nur den *Default*; über "‹"/"›" lässt sich weiterhin jeder beliebige Monat (auch der übersprungene) manuell ansteuern, z. B. für nachträgliche Korrekturen. Ein Monat, der auf einen Samstag fällt (Tag 1 = Samstag), wird dadurch als Default nie angezeigt — sein "erstes Wochenende" beginnt sofort am 1., der Sprung zum Folgemonat greift also schon ab Tag 1.
 
     **Start-/Endzeit bleiben nach dem Anlegen editierbar** (`updateShiftTime()`, Feedback: "auch wenn vorverlegt zusätzlich bearbeitbar"): die "Zeit"-Spalte einer Schicht zeigt statt reinem Text vier `<select>`-Felder (Stunde/Minute je für Start und Ende, `timeParts()`/`HOUR_OPTIONS`/`MINUTE_OPTIONS`) — die per `addShift()` vorbelegten Standardzeiten (Früh/Küche 07:00–13:00, Früh/Service 08:30–13:00, Spät 13:00–18:00, donnerstags/freitags Spät 11:30–18:00, s. u.) lassen sich damit jederzeit für eine einzelne Schicht anpassen, z. B. wenn eine Frühschicht ausnahmsweise später beginnt. Kein neuer Trigger nötig: `log_shift_change` (Migration `0008_audit_log_and_week_swap.sql`) protokolliert eine Zeitänderung an einer bereits veröffentlichten Schicht ohnehin schon im Änderungsprotokoll.
+
+    **Bugfix: veröffentlichte Schicht/Backeintrag ließ sich gar nicht mehr bearbeiten oder löschen** (Feedback: "Kannst du auch klar verifizieren, das der Admin nach Veröffentlichung noch bearbeiten kann? Hab es gerade probiert, funktioniert nicht"): `log_shift_change()`/`log_bake_entry_change()` (Migration 0008/0025) protokollieren eine solche Änderung per Insert in `plan_audit_log` — die Tabelle hat aber bewusst keine Insert-Policy für normale Nutzer (nur `is_admin()` für Select), unter der (falschen) Annahme, ein Trigger liefe automatisch mit den Rechten des Tabelleneigentümers. Das gilt nur für **SECURITY DEFINER** Funktionen; beide Funktionen waren aber (Postgres-Default) SECURITY INVOKER, liefen also mit den Rechten der aufrufenden Rolle (`authenticated`), für die keine Insert-Policy existiert — jedes UPDATE/DELETE auf eine bereits veröffentlichte Zeile scheiterte dadurch komplett ("new row violates row-level security policy for table plan_audit_log"), nicht nur der Protokoll-Eintrag. Nie aufgefallen, weil dieser Zweig nur bei Bearbeitung *bereits veröffentlichter* Einträge feuert — im normalen Planungsablauf (Entwurf bearbeiten, dann veröffentlichen) nie ausgelöst. Fix (Migration `0029_audit_log_trigger_security_definer.sql`): beide Funktionen als SECURITY DEFINER, gleiches Muster wie `report_shift_absence()`/`update_my_name()`/`is_colleague_available()`. Per RLS-Simulation gegen die Live-DB verifiziert (Update, Delete, jeweils shifts und bake_plan_entries). Im selben Zug bekamen `assignShift()`/`updateShiftTime()`/`deleteShift()`/`updateBakeEntry()`/`deleteBakeEntry()` die fehlende `error`-Prüfung mit `alert()` (bereits Konvention bei `addBakeEntry()`/Publish-Buttons, s. o.) — vorher wäre ein solcher Fehler clientseitig kommentarlos verschluckt worden und hätte wie ein Button ohne Funktion gewirkt.
 
     **Früh/Service-Default 08:30** (`addShift()`, Feedback: "Früh Küche fängt immer um 07:00 Uhr an und Früh Service um 08:30 Uhr. Kannst du das auch noch als Default ändern?"): die Startzeit einer neuen Frühschicht hängt jetzt vom `role_tag` ab — "kueche" startet wie bisher um 07:00, "service" jetzt um 08:30; Ende bleibt bei beiden 13:00.
 
@@ -402,7 +444,11 @@ kann. Berechtigung prüft die Funktion ohnehin selbst über die `employeeId` in 
 über den Aufrufer-JWT.
 
 ## 13. Kalender-Export (ICS)
-Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mit seinen veröffentlichten Service-Schichten **und** Back-Terminen seiner Truppe. Kein Speichern von ICS-Dateien nötig — wird aus `shifts`/`bake_plan_entries` zur Abrufzeit generiert.
+Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mit seinen veröffentlichten Service-Schichten. Kein Speichern von ICS-Dateien nötig — wird aus `shifts` zur Abrufzeit generiert. Back-Termine bewusst **nicht** enthalten (Feedback: "Die Backentermine brauche ich nicht. Die sind zu viel" — waren zuvor mit drin, aber zu viele für den persönlichen Kalender).
+
+**Bugfix (Schichten fehlten im Export):** `toIcsDateTime()` baute den `HHMMSS`-Zeitanteil bislang per Colon-Entfernen + fest angehängtem `"00"`. Das passt nur für sekundenlose Eingaben (die damals hartcodierten Backtermin-Zeiten `"06:00"`/`"09:00"`), nicht aber für `shifts.start_time`/`end_time`, die als Postgres-`time`-Spalte bereits `"HH:MM:SS"` liefern — daraus entstand ein ungültiger 8-stelliger Zeitstempel (z. B. `14000000` statt `140000`), den Kalender-Apps stillschweigend verwarfen (Feedback: "Der Kalenderexport funktioniert nur für die Backereignisse. Nicht für meine Schichten"). Fix: `time.split(":")` extrahiert nur Stunde/Minute, die Sekunden werden immer genau einmal ergänzt — funktioniert für beide Eingabeformate.
+
+Jedes `VEVENT`s `SUMMARY` beginnt zusätzlich mit `${employee.name}:`, damit der Name auch dann sichtbar ist, wenn der Feed in einen gemeinsam genutzten Kalender abonniert wird (Feedback: "wenn ich meinen Kalender abonniere, dass der [Name] dann mit im Ereignis steht").
 
 ## 14. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
@@ -462,3 +508,31 @@ Host-Port `3050` wurde gewählt, weil auf demselben HA-Host bereits andere eigen
 Host-Ports belegen: `re-assistant` (3000), `polier-pro` (3001), `swap-bid` (3045),
 `daily-nest-plans` (8099 — deshalb *nicht* für Ella verwendet, obwohl der Container intern
 weiterhin auf 8099 lauscht). `mg2abrp` hat keine Web-UI (nur MQTT) und belegt keinen Port.
+
+## 18. Schichtabsage (Krankmeldung)
+Feedback: "Momentan kann niemand eine Schicht auf Grund von Krankheit oder ähnlichem einfach
+absagen. Diese Funktion brauchen wir noch. Mit Freitextfeld für eine Begründung das
+verpflichtend ist. Der Admin soll darüber dann eine Benachrichtigung bekommen und die Schicht
+dann trotz veröffentlichtem Plan wieder änderbar sein."
+
+Admins konnten veröffentlichte Schichten schon immer jederzeit ändern (`shifts_write_admin`
+kennt keine Sperre nach Veröffentlichung, §6) — der fehlende Teil war, dass ein Mitarbeiter
+selbst (ohne Admin-Rechte auf `shifts`) seine eigene, bereits veröffentlichte Schicht als
+"abgesagt" protokollieren und dabei automatisch wieder freigeben kann, damit der Admin sie in
+der Planung sofort neu besetzt sieht.
+
+Neue Tabelle `shift_cancellations` (`shift_id`, `employee_id`, `reason` — `check (length(trim(reason)) > 0)`,
+verhindert leere Begründungen zusätzlich zum Pflichtfeld im UI). Schreiben passiert ausschließlich
+über die SECURITY DEFINER Funktion `report_shift_absence(target_shift_id, reason)` (Migration
+`0028_shift_cancellations.sql`, gleiches Muster wie `update_my_name()` in §6/Migration 0004):
+prüft, dass der Aufrufer tatsächlich aktuell auf die Schicht eingeteilt ist, protokolliert den
+Eintrag und setzt `shifts.employee_id = null` — die Schicht bleibt `published`, taucht aber ab
+sofort überall als unbesetzt auf und ist für den Admin ganz normal (wieder-)zuweisbar, ohne dass
+eine offene Update-Policy auf die ganze `shifts`-Tabelle nötig wäre.
+
+Neuer Benachrichtigungstyp `shift_cancelled` (`EMPLOYEE_TRIGGERED_TYPES` in `send-push`, wie
+`swap_accepted`/`availability_submitted`): jede angemeldete Person darf ihn auslösen, Ziel sind
+serverseitig immer alle aktiven Admins. UI in Home.tsx ("Meine Woche"): pro eigener Schicht neben
+"Tauschen" ein zweiter Button "Absagen (krank o. ä.)", öffnet ein Pflicht-Freitextfeld
+(Bestätigen-Button bleibt disabled, solange die Begründung leer ist); nach Bestätigung `rpc("report_shift_absence", …)`
+gefolgt von `notifyAdmins("shift_cancelled", …)`.

@@ -1,0 +1,13 @@
+-- Feedback: "Wenn ich als MA die Benachrichtigung bekomme, dass ein neuer
+-- Dienstplan raus ist, ich oben auf die Glocke tippe und dann auf die
+-- Benachrichtigung wäre es schön wenn die Benachrichtigung dann gelesen
+-- ist und ich in die Kalenderansicht oder Backansicht springe um die es
+-- geht. Also richtige Woche oder richtiger Monat."
+--
+-- notifications_log bekommt ein optionales Ziel (relativer App-Pfad), das
+-- send-push beim Anlegen mitschreibt und das die Glocke (NotificationBell)
+-- beim Antippen einer Benachrichtigung anspringt, statt nur "gelesen" zu
+-- markieren. Bewusst nullable + ohne Default, damit ältere, bereits
+-- bestehende Zeilen (vor diesem Feature) einfach kein Sprungziel haben statt
+-- fälschlich irgendwohin zu verweisen.
+alter table notifications_log add column link text;

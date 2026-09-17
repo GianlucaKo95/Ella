@@ -4,12 +4,17 @@
 // notifications_log (der "channel: web_push" nur versprach, ohne je etwas zu
 // verschicken).
 //
-// Aufruf: POST /functions/v1/send-push  Body: { type, body, employeeIds? }
+// Aufruf: POST /functions/v1/send-push  Body: { type, body, employeeIds?, link? }
+// `link`: optionaler relativer App-Pfad (z. B. "/kalender?date=2026-09-01"),
+// den die In-App-Glocke (NotificationBell) beim Antippen der Benachrichtigung
+// ansteuert und den auch der Service Worker als Sprungziel für den nativen
+// Push-Klick verwendet (statt immer fest "/home").
 // Header: Authorization: Bearer <access_token der aufrufenden Person>
 //
 // Berechtigung je nach type:
-//   - 'swap_accepted' / 'availability_submitted': jede angemeldete, aktive
-//     Person darf das auslösen (passiert automatisch nach eigener Aktion),
+//   - 'swap_accepted' / 'availability_submitted' / 'shift_cancelled': jede
+//     angemeldete, aktive Person darf das auslösen (passiert automatisch nach
+//     eigener Aktion),
 //     `employeeIds` aus dem Body wird dabei IGNORIERT — Ziel sind serverseitig
 //     immer alle aktiven Admins, damit niemand über diesen Weg Benachrichtigungen
 //     an beliebige andere Mitarbeiter umleiten kann.
@@ -30,7 +35,7 @@ const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com";
 
 const ADMIN_ONLY_TYPES = new Set(["shift_published", "bake_plan_published", "announcement", "reminder"]);
-const EMPLOYEE_TRIGGERED_TYPES = new Set(["swap_accepted", "availability_submitted"]);
+const EMPLOYEE_TRIGGERED_TYPES = new Set(["swap_accepted", "availability_submitted", "shift_cancelled"]);
 
 const TITLE_BY_TYPE: Record<string, string> = {
   shift_published: "Dienstplan veröffentlicht",
@@ -38,7 +43,8 @@ const TITLE_BY_TYPE: Record<string, string> = {
   announcement: "Neue Ankündigung",
   swap_accepted: "Schichttausch wartet auf Bestätigung",
   availability_submitted: "Verfügbarkeit eingereicht",
-  reminder: "Erinnerung"
+  reminder: "Erinnerung",
+  shift_cancelled: "Schicht abgesagt"
 };
 
 const CORS_HEADERS = {
@@ -85,13 +91,13 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Nicht angemeldet" }, 401);
   }
 
-  let payload: { type?: string; body?: string; employeeIds?: string[] };
+  let payload: { type?: string; body?: string; employeeIds?: string[]; link?: string };
   try {
     payload = await req.json();
   } catch {
     return jsonResponse({ error: "Ungültige Anfrage" }, 400);
   }
-  const { type, body } = payload;
+  const { type, body, link } = payload;
   if (!type || !body?.trim()) {
     return jsonResponse({ error: "type und body sind erforderlich" }, 400);
   }
@@ -118,7 +124,8 @@ Deno.serve(async (req) => {
       type,
       target_employee_id,
       body,
-      channel: "web_push"
+      channel: "web_push",
+      link: link || null
     }))
   );
 
@@ -128,7 +135,7 @@ Deno.serve(async (req) => {
     .in("employee_id", targetIds);
 
   const title = TITLE_BY_TYPE[type] ?? "Ella";
-  const payloadJson = JSON.stringify({ title, body, url: "/home" });
+  const payloadJson = JSON.stringify({ title, body, url: link || "/home" });
 
   // Parallel statt nacheinander verschickt (Feedback: "Das Veröffentlichen des
   // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — bei mehreren

@@ -188,6 +188,21 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     return "full";
   }
 
+  // Feedback: "Ich bräuchte auch noch bei den Verfügbarkeiten pro Tag ein
+  // Notizfeld" — nutzt die schon seit Migration 0001 bestehende, bisher nie
+  // in der UI verwendete `availability_entries.note`-Spalte. Bewusst nur für
+  // einen Tag mit bereits gewähltem kann/kann-nicht editierbar (kein
+  // eigenständiges Anlegen einer Verfügbarkeitszeile allein durch eine
+  // Notiz) — sonst würde eine reine Notiz ohne explizite Wahl den Tag über
+  // `choiceFor()`/`isDayAnswered` fälschlich als "ganztags verfügbar"
+  // beantwortet erscheinen lassen.
+  async function updateDayNote(dateStr: string, note: string) {
+    const existing = oneTimeByDate.get(dateStr);
+    if (!existing) return;
+    await supabase.from("availability_entries").update({ note: note.trim() || null }).eq("id", existing.id);
+    load();
+  }
+
   async function setDayAvailability(dateStr: string, choice: DayChoice) {
     const window =
       choice === "frueh_kueche"
@@ -283,7 +298,8 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
           <div>
             {relevantDates.map((d) => {
               const dateStr = toDateStr(d);
-              const choice = choiceFor(oneTimeByDate.get(dateStr));
+              const entry = oneTimeByDate.get(dateStr);
+              const choice = choiceFor(entry);
               const specialDay = specialByDate.get(dateStr);
               const hasFrueh = fruehDays.includes(isoDayOfWeek(d)) || specialDay?.frueh_exception === true;
               const locked = publishedDates.has(dateStr);
@@ -384,6 +400,18 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
                             })}
                         </select>
                       )}
+                    </div>
+                  )}
+                  {!locked && (
+                    <div className="row-actions" style={{ width: "100%" }}>
+                      <input
+                        type="text"
+                        style={{ width: "100%" }}
+                        placeholder={entry ? "Notiz (optional, z. B. Grund oder Uhrzeit)" : "Erst kann/kann nicht wählen, dann Notiz möglich"}
+                        disabled={!entry}
+                        defaultValue={entry?.note ?? ""}
+                        onBlur={(e) => e.target.value !== (entry?.note ?? "") && updateDayNote(dateStr, e.target.value)}
+                      />
                     </div>
                   )}
                 </div>

@@ -37,6 +37,7 @@ type AvailabilityRow = {
   available: boolean;
   from_time: string | null;
   to_time: string | null;
+  note: string | null;
 };
 // Mitarbeiter können mehrere solcher Paare anlegen (Verfuegbarkeit.tsx,
 // Feedback: "wenn ich für Tag 1 eingeplant werde, kann ich an Tag 2 nicht
@@ -606,14 +607,18 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       availability.find((a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr) ??
       availability.find((a) => a.employee_id === employeeId && a.kind === "recurring" && a.day_of_week === dow);
     if (!entry) return "unbekannt";
-    if (!entry.available) return "kann nicht";
+    // Feedback: "Ich bräuchte auch noch bei den Verfügbarkeiten pro Tag ein
+    // Notizfeld" — die Notiz wäre für die Zuweisung sonst unsichtbar, deshalb
+    // an jedes Ergebnis anhängen statt nur auf der Verfügbarkeit-Seite selbst.
+    const noteSuffix = entry.note ? ` – ${entry.note}` : "";
+    if (!entry.available) return `kann nicht${noteSuffix}`;
     if (entry.from_time && entry.to_time) {
       const start = timeToMinutes(shiftStartTime);
       const from = timeToMinutes(entry.from_time);
       const to = timeToMinutes(entry.to_time);
-      return start >= from && start < to ? "kann" : "kann nicht";
+      return (start >= from && start < to ? "kann" : "kann nicht") + noteSuffix;
     }
-    return "kann";
+    return `kann${noteSuffix}`;
   }
 
   async function addShift(date: string, shift_type: "frueh" | "spaet", role_tag: "kueche" | "service" | null) {
@@ -653,7 +658,8 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   }
 
   async function assignShift(id: string, employee_id: string | null) {
-    await supabase.from("shifts").update({ employee_id }).eq("id", id);
+    const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
+    if (error) alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
     loadAll();
   }
 
@@ -663,12 +669,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // `log_shift_change` (Migration 0008) protokolliert eine Zeitänderung an
   // einer schon veröffentlichten Schicht automatisch im Änderungsprotokoll.
   async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
-    await supabase.from("shifts").update(patch).eq("id", id);
+    const { error } = await supabase.from("shifts").update(patch).eq("id", id);
+    if (error) alert(`Zeit konnte nicht geändert werden: ${error.message}`);
     loadAll();
   }
 
   async function deleteShift(id: string) {
-    await supabase.from("shifts").delete().eq("id", id);
+    const { error } = await supabase.from("shifts").delete().eq("id", id);
+    if (error) alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
     loadAll();
   }
 
@@ -690,12 +698,14 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   }
 
   async function updateBakeEntry(id: string, patch: Partial<BakeEntryRow>) {
-    await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+    const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+    if (error) alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
     loadAll();
   }
 
   async function deleteBakeEntry(id: string) {
-    await supabase.from("bake_plan_entries").delete().eq("id", id);
+    const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
+    if (error) alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
     loadAll();
   }
 
@@ -739,7 +749,12 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
     // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
     // Bestätigung nicht länger blockieren.
-    notifyEmployees(notifyIds, "shift_published", `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`);
+    notifyEmployees(
+      notifyIds,
+      "shift_published",
+      `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
+      `/kalender?date=${toMonthStr(planMonth)}`
+    );
     // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
     // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
     // Neuladen der Liste keine sichtbare Bestätigung.
@@ -761,11 +776,25 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       .update({ status: "published" })
       .in("date", bkDateStrs)
       .eq("status", "draft")
-      .select("id");
+      .select("id, bake_team_id");
     if (error) {
       alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
       return;
     }
+    // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
+    // — bisher löste nur das Veröffentlichen des Dienstplans eine
+    // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
+    // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
+    // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
+    // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
+    // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
+    // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
+    // Datums-Parameter.
+    const publishedTeamIds = new Set(
+      (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
+    );
+    const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
+    notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
     setPublishWarningAck(false);
     alert(
       publishedEntries.length > 0

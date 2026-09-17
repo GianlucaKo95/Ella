@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
 import { icsFeedUrl } from "../lib/ics";
 import {
@@ -10,6 +11,7 @@ import {
   monthGrid,
   monthLabel,
   monthStartOf,
+  parseDateStr,
   toDateStr
 } from "../lib/dates";
 
@@ -32,9 +34,16 @@ function hoursBetween(from: string, to: string): number {
 
 export function Kalender({ employee }: { employee: Employee }) {
   const todayStr = toDateStr(new Date());
-  const [monthStart, setMonthStart] = useState(() => monthStartOf(new Date()));
+  // Von einer Benachrichtigung aus verlinkt (z. B. "/kalender?date=2026-09-01"
+  // nach Veröffentlichen des Septemberplans, s. NotificationBell.tsx) —
+  // Monat und ausgewählter Tag starten dann direkt beim richtigen Ziel statt
+  // beim aktuellen Monat/heute.
+  const [searchParams] = useSearchParams();
+  const linkedDateParam = searchParams.get("date");
+  const linkedDate = linkedDateParam ? parseDateStr(linkedDateParam) : null;
+  const [monthStart, setMonthStart] = useState(() => monthStartOf(linkedDate ?? new Date()));
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(todayStr);
+  const [selectedDate, setSelectedDate] = useState<string | null>(linkedDateParam ?? todayStr);
   const [billingStartDay, setBillingStartDay] = useState(1);
   const [serviceDays, setServiceDays] = useState<number[]>([3, 4, 5, 6]);
   const [ownBakeDates, setOwnBakeDates] = useState<Set<string>>(new Set());
@@ -208,8 +217,17 @@ export function Kalender({ employee }: { employee: Employee }) {
           {grid.map((d) => {
             const dateStr = toDateStr(d);
             const dayShifts = shiftsByDate.get(dateStr) ?? [];
-            const ownShift = dayShifts.find((s) => s.employee_id === employee.id);
-            const otherCount = dayShifts.length - (ownShift ? 1 : 0);
+            // Alle eigenen Schichten des Tages berücksichtigen, nicht nur die
+            // erste gefundene — sonst zählte eine zweite eigene Schicht (Früh
+            // **und** Spät am selben Tag) fälschlich als Kolleg:in in
+            // otherCount/"+X" mit, statt als eigene Ganztags-Schicht erkannt
+            // zu werden (Feedback: "Wenn jemand an einem Tag in einer Früh und
+            // spät Schicht eingeplant ist, soll das System das erkennen").
+            const ownShiftsForDay = dayShifts.filter((s) => s.employee_id === employee.id);
+            const ownHasFrueh = ownShiftsForDay.some((s) => s.shift_type === "frueh");
+            const ownHasSpaet = ownShiftsForDay.some((s) => s.shift_type === "spaet");
+            const ownGanztags = ownHasFrueh && ownHasSpaet;
+            const otherCount = dayShifts.length - ownShiftsForDay.length;
             const outside = d.getMonth() !== monthStart.getMonth();
             const isToday = dateStr === todayStr;
             const closed = !serviceDays.includes(isoDayOfWeek(d));
@@ -217,14 +235,18 @@ export function Kalender({ employee }: { employee: Employee }) {
             return (
               <button
                 key={dateStr}
-                className={`cal-day ${outside ? "outside" : ""} ${isToday ? "today" : ""} ${ownShift ? "own" : ""} ${closed ? "closed" : ""}`}
+                className={`cal-day ${outside ? "outside" : ""} ${isToday ? "today" : ""} ${ownShiftsForDay.length > 0 ? "own" : ""} ${closed ? "closed" : ""}`}
                 onClick={() => setSelectedDate(dateStr)}
                 style={{ border: "none" }}
               >
                 <span className="cal-day-num">{d.getDate()}</span>
                 {!closed && (
                   <span className="cal-day-dots">
-                    {ownShift && <span className={`cal-dot own ${ownShift.shift_type}`} />}
+                    {ownGanztags ? (
+                      <span className="cal-dot own ganztags" />
+                    ) : (
+                      ownShiftsForDay[0] && <span className={`cal-dot own ${ownShiftsForDay[0].shift_type}`} />
+                    )}
                     {hasBake && <span className="cal-dot bake" />}
                     {otherCount > 3 ? (
                       <span className="cal-day-more">+{otherCount}</span>
@@ -244,6 +266,9 @@ export function Kalender({ employee }: { employee: Employee }) {
           </span>
           <span>
             <span className="cal-dot own spaet" /> Spät (eigen)
+          </span>
+          <span>
+            <span className="cal-dot own ganztags" /> Ganztags (eigen)
           </span>
           <span>
             <span className="cal-dot" /> Kolleg:in
