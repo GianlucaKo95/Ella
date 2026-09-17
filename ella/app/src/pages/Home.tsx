@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, notifyEmployees, notifyAdmins, uploadAnnouncementImage, type Employee } from "../lib/supabase";
-import { toDateStr, addDays, addMonths, nextMonthStart, monthLabel, monthStartOf, toMonthStr } from "../lib/dates";
+import { toDateStr, addDays, addMonths, monthLabel, monthStartOf, parseDateStr, toMonthStr } from "../lib/dates";
 
 type ShiftRow = {
   id: string;
@@ -44,6 +44,7 @@ export function Home({ employee }: { employee: Employee }) {
   const [incomingSwaps, setIncomingSwaps] = useState<SwapRow[]>([]);
   const [outgoingSwaps, setOutgoingSwaps] = useState<SwapRow[]>([]);
   const [needsAvailability, setNeedsAvailability] = useState(false);
+  const [availabilityTargetMonth, setAvailabilityTargetMonth] = useState<Date | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [newAnnouncement, setNewAnnouncement] = useState("");
   const [newAnnouncementImage, setNewAnnouncementImage] = useState<File | null>(null);
@@ -60,8 +61,6 @@ export function Home({ employee }: { employee: Employee }) {
 
   const today = toDateStr(new Date());
   const weekDays = Array.from({ length: 7 }, (_, i) => toDateStr(addDays(new Date(), i)));
-  const nextMonth = nextMonthStart(new Date());
-  const nextMonthStr = toMonthStr(nextMonth);
 
   async function load() {
     const shiftsPromise = supabase
@@ -102,27 +101,18 @@ export function Home({ employee }: { employee: Employee }) {
           .limit(3)
       : Promise.resolve({ data: [] as unknown } as any);
 
-    const submissionPromise = supabase
-      .from("availability_submissions")
-      .select("id")
-      .eq("employee_id", employee.id)
-      .eq("month", nextMonthStr)
-      .maybeSingle();
-
     // Feedback: "ab Freigabe Schichtplan sollte es den MA möglich sein ihre
-    // Verfügbarkeiten für den nächsten Monat einzugeben" (Verfuegbarkeit.tsx)
-    // — dieselbe Freigabe entscheidet hier, ob die Erinnerungskarte überhaupt
-    // aufpoppt. Sie sonst schon zu zeigen, bevor der laufende Monat
-    // veröffentlicht ist, würde auf eine Verfügbarkeit-Seite verlinken, die
-    // in diesem Zustand ohnehin nur den Hinweis "noch nicht freigegeben"
-    // zeigt statt der Eingabemaske.
-    const currentMonthPublishedPromise = supabase
-      .from("shifts")
-      .select("id")
-      .eq("status", "published")
-      .gte("date", toDateStr(monthStartOf(new Date())))
-      .lt("date", toDateStr(addMonths(monthStartOf(new Date()), 1)))
-      .limit(1);
+    // Verfügbarkeiten für den nächsten Monat einzugeben ... Es soll
+    // unabhängig davon sein ob es eine offene Schicht im nächsten Monat gibt
+    // oder nicht. Sobald der Schichtplan für bspw. Oktober veröffentlicht
+    // ist, sollen die MA ihre Zeiten für November eintragen können." — der
+    // einreichbare Monat ist deshalb nicht mehr "heute + 1 Monat", sondern
+    // immer der Monat direkt nach dem zuletzt tatsächlich veröffentlichten
+    // (s. Verfuegbarkeit.tsx, dieselbe Berechnung). Plant der Admin schon
+    // einen Monat im Voraus, rückt die Erinnerungskarte hier entsprechend
+    // gleich mit nach, statt weiterhin einen bereits veröffentlichten Monat
+    // zu verlangen.
+    const latestPublishedPromise = supabase.from("shifts").select("date").eq("status", "published").order("date", { ascending: false }).limit(1);
 
     const announcementsPromise = supabase
       .from("announcements")
@@ -153,8 +143,7 @@ export function Home({ employee }: { employee: Employee }) {
       shiftsRes,
       todayShiftsRes,
       bakesRes,
-      submissionRes,
-      currentMonthPublishedRes,
+      latestPublishedRes,
       announcementsRes,
       incomingSwapsRes,
       outgoingSwapsRes,
@@ -164,8 +153,7 @@ export function Home({ employee }: { employee: Employee }) {
       shiftsPromise,
       todayShiftsPromise,
       bakesPromise,
-      submissionPromise,
-      currentMonthPublishedPromise,
+      latestPublishedPromise,
       announcementsPromise,
       incomingSwapsPromise,
       outgoingSwapsPromise,
@@ -176,13 +164,24 @@ export function Home({ employee }: { employee: Employee }) {
     setShifts((shiftsRes.data as ShiftRow[]) || []);
     setTodayShifts((todayShiftsRes.data as unknown as TodayShiftRow[]) || []);
     setBakes((bakesRes.data as BakeRow[]) || []);
+
+    const latestPublishedDate = (latestPublishedRes.data as { date: string }[] | null)?.[0]?.date ?? null;
+    const targetMonth = latestPublishedDate ? addMonths(monthStartOf(parseDateStr(latestPublishedDate)), 1) : null;
+    setAvailabilityTargetMonth(targetMonth);
     // Admins müssen keine Verfügbarkeit abgeben (§9/§11) — für sie soll die
-    // Erinnerung nie aufpoppen, unabhängig vom (bei ihnen ohnehin nie
-    // ausgefüllten) Einreichungsstatus. Ebenso kein Aufpoppen, solange der
-    // laufende Monat noch nicht veröffentlicht ist (s. o.).
-    setNeedsAvailability(
-      employee.role !== "admin" && !submissionRes.data && (currentMonthPublishedRes.data?.length ?? 0) > 0
-    );
+    // Erinnerung nie aufpoppen. Ebenso kein Aufpoppen, solange noch nie
+    // irgendein Monat veröffentlicht wurde (s. o.).
+    if (targetMonth && employee.role !== "admin") {
+      const { data: submission } = await supabase
+        .from("availability_submissions")
+        .select("id")
+        .eq("employee_id", employee.id)
+        .eq("month", toMonthStr(targetMonth))
+        .maybeSingle();
+      setNeedsAvailability(!submission);
+    } else {
+      setNeedsAvailability(false);
+    }
     setAnnouncements((announcementsRes.data as unknown as Announcement[]) || []);
     setIncomingSwaps((incomingSwapsRes.data as unknown as SwapRow[]) || []);
     setOutgoingSwaps((outgoingSwapsRes.data as unknown as SwapRow[]) || []);
@@ -307,7 +306,7 @@ export function Home({ employee }: { employee: Employee }) {
           }}
         >
           <div className="card card-attention" style={{ maxWidth: 360, margin: 0 }}>
-            <h3>Verfügbarkeit für {monthLabel(nextMonth)} fehlt noch</h3>
+            <h3>Verfügbarkeit für {availabilityTargetMonth ? monthLabel(availabilityTargetMonth) : "den nächsten Monat"} fehlt noch</h3>
             <p style={{ color: "var(--ink-soft)" }}>
               Bitte trag deine Verfügbarkeit für den kommenden Monat ein und reiche sie ein.
             </p>
