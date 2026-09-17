@@ -406,6 +406,8 @@ Pro Mitarbeiter ein ICS-Feed (Edge Function, per `employee_id` abrufbare URL) mi
 
 **Bugfix (Schichten fehlten im Export):** `toIcsDateTime()` baute den `HHMMSS`-Zeitanteil bislang per Colon-Entfernen + fest angehängtem `"00"`. Das passt nur für sekundenlose Eingaben (die hartcodierten Backtermin-Zeiten `"06:00"`/`"09:00"`), nicht aber für `shifts.start_time`/`end_time`, die als Postgres-`time`-Spalte bereits `"HH:MM:SS"` liefern — daraus entstand ein ungültiger 8-stelliger Zeitstempel (z. B. `14000000` statt `140000`), den Kalender-Apps stillschweigend verwarfen (Feedback: "Der Kalenderexport funktioniert nur für die Backereignisse. Nicht für meine Schichten"). Fix: `time.split(":")` extrahiert nur Stunde/Minute, die Sekunden werden immer genau einmal ergänzt — funktioniert für beide Eingabeformate.
 
+Jedes `VEVENT`s `SUMMARY` beginnt zusätzlich mit `${employee.name}:` (Schicht- und Backtermine), damit der Name auch dann sichtbar ist, wenn der Feed in einen gemeinsam genutzten Kalender abonniert wird (Feedback: "wenn ich meinen Kalender abonniere, dass der [Name] dann mit im Ereignis steht").
+
 ## 14. Offene Architekturfragen (für die nächste Iteration)
 - **Kollisions-Warnung statt harter Sperre**: Truppenmitglied + Service-Schicht am selben Tag wird jetzt angezeigt, aber nicht verhindert — bleibt eine bewusste Entscheidung des Admins.
 - **Kein Fallback ohne Push-API**: Ältere/eingebettete WebViews ohne `PushManager`-Unterstützung zeigen entsprechend "wird nicht unterstützt" und bleiben auf die In-App-Glocke (60s-Poll) beschränkt — es gibt aktuell keinen zweiten Kanal (z. B. `ha_notify` über die Supervisor-API) als Ersatz dafür.

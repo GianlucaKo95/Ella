@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
       `DTSTART:${toIcsDateTime(s.date, s.start_time)}`,
       `DTEND:${toIcsDateTime(s.date, s.end_time)}`,
       `SUMMARY:${escapeIcs(
-        `Schicht (${s.shift_type === "frueh" ? "Früh" : "Spät"}${s.role_tag ? " – " + s.role_tag : ""})`
+        `${employee.name}: Schicht (${s.shift_type === "frueh" ? "Früh" : "Spät"}${s.role_tag ? " – " + s.role_tag : ""})`
       )}`,
       "END:VEVENT"
     );
@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
       `UID:bake-${b.id}@ella`,
       `DTSTART:${toIcsDateTime(b.date, "06:00")}`,
       `DTEND:${toIcsDateTime(b.date, "09:00")}`,
-      `SUMMARY:${escapeIcs(`Backen: ${b.cake_items?.name ?? ""} (${b.quantity})`)}`,
+      `SUMMARY:${escapeIcs(`${employee.name}: Backen: ${b.cake_items?.name ?? ""} (${b.quantity})`)}`,
       "END:VEVENT"
     );
   }
