@@ -37,6 +37,7 @@ type AvailabilityRow = {
   available: boolean;
   from_time: string | null;
   to_time: string | null;
+  note: string | null;
 };
 // Mitarbeiter können mehrere solcher Paare anlegen (Verfuegbarkeit.tsx,
 // Feedback: "wenn ich für Tag 1 eingeplant werde, kann ich an Tag 2 nicht
@@ -606,14 +607,18 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       availability.find((a) => a.employee_id === employeeId && a.kind === "one_time" && a.specific_date === dateStr) ??
       availability.find((a) => a.employee_id === employeeId && a.kind === "recurring" && a.day_of_week === dow);
     if (!entry) return "unbekannt";
-    if (!entry.available) return "kann nicht";
+    // Feedback: "Ich bräuchte auch noch bei den Verfügbarkeiten pro Tag ein
+    // Notizfeld" — die Notiz wäre für die Zuweisung sonst unsichtbar, deshalb
+    // an jedes Ergebnis anhängen statt nur auf der Verfügbarkeit-Seite selbst.
+    const noteSuffix = entry.note ? ` – ${entry.note}` : "";
+    if (!entry.available) return `kann nicht${noteSuffix}`;
     if (entry.from_time && entry.to_time) {
       const start = timeToMinutes(shiftStartTime);
       const from = timeToMinutes(entry.from_time);
       const to = timeToMinutes(entry.to_time);
-      return start >= from && start < to ? "kann" : "kann nicht";
+      return (start >= from && start < to ? "kann" : "kann nicht") + noteSuffix;
     }
-    return "kann";
+    return `kann${noteSuffix}`;
   }
 
   async function addShift(date: string, shift_type: "frueh" | "spaet", role_tag: "kueche" | "service" | null) {
