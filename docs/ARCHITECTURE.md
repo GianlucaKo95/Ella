@@ -248,6 +248,33 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   `reset-password`/`delete-employee`), Berechtigung wird im Code anhand des
   mitgeschickten Bearer-Tokens geprüft.
 
+  **Sprungziel je Benachrichtigung** (`notifications_log.link`, Migration
+  `0030_notification_links.sql`, Feedback: "wenn ich oben auf die Glocke
+  tippe und dann auf die Benachrichtigung wäre es schön wenn die
+  Benachrichtigung dann gelesen ist und ich in die Kalenderansicht oder
+  Backansicht springe um die es geht. Also richtige Woche oder richtiger
+  Monat"): `notifyEmployees()`/`send-push` nehmen jetzt einen optionalen
+  `link` (relativer App-Pfad, z. B. `/kalender?date=2026-09-01`) entgegen,
+  der pro Benachrichtigung in `notifications_log` mitgeschrieben und auch als
+  `url` im Web-Push-Payload verwendet wird (ersetzt das bisherige feste
+  `"/home"`). `publishShiftMonth()` setzt ihn auf `/kalender?date=${toMonthStr(planMonth)}`
+  — den ersten Tag des veröffentlichten Monats. Die Glocke (`NotificationBell.tsx`)
+  navigiert beim Antippen einer Benachrichtigung mit gesetztem `link` per
+  `useNavigate()` dorthin (zusätzlich zum bisherigen "als gelesen markieren");
+  `Kalender.tsx` liest dafür einen `date`-Query-Parameter beim Laden aus und
+  initialisiert Monat **und** ausgewählten Tag darüber statt mit dem
+  aktuellen Monat/heute. Für Backpläne gibt es aktuell noch keine
+  Mitarbeiter-Benachrichtigung (`publishBakeWeek()` ruft `notifyEmployees()`
+  nicht auf) — der Mechanismus ist aber bereits allgemein gehalten (Ziel
+  kommt vollständig aus `link`, keine Typ-Fallunterscheidung in der Glocke),
+  ließe sich also ohne Änderung an Glocke/Migration ergänzen, sobald das
+  gewünscht ist. Bewusst nicht angefasst: ein bereits offener Tab reagiert
+  auf einen nativen Push-Klick weiterhin nur mit `focus()` statt zusätzlich
+  zum Sprungziel zu navigieren (`sw.ts`, `notificationclick`) — das würde
+  eine `postMessage`-Brücke zwischen Service Worker und offener Seite
+  brauchen; nur das neu geöffnete Fenster (kein Tab bereits offen) nutzt
+  `url` schon heute.
+
   **Bugfix: Veröffentlichen fühlte sich langsam an** (Feedback: "Das
   Veröffentlichen des Plans dauert bis zu 20 Sekunden bis die Meldung kommt
   das X Schichten veröffentlicht sind"): zwei unabhängige Ursachen. Erstens

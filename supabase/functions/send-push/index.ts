@@ -4,7 +4,11 @@
 // notifications_log (der "channel: web_push" nur versprach, ohne je etwas zu
 // verschicken).
 //
-// Aufruf: POST /functions/v1/send-push  Body: { type, body, employeeIds? }
+// Aufruf: POST /functions/v1/send-push  Body: { type, body, employeeIds?, link? }
+// `link`: optionaler relativer App-Pfad (z. B. "/kalender?date=2026-09-01"),
+// den die In-App-Glocke (NotificationBell) beim Antippen der Benachrichtigung
+// ansteuert und den auch der Service Worker als Sprungziel für den nativen
+// Push-Klick verwendet (statt immer fest "/home").
 // Header: Authorization: Bearer <access_token der aufrufenden Person>
 //
 // Berechtigung je nach type:
@@ -87,13 +91,13 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Nicht angemeldet" }, 401);
   }
 
-  let payload: { type?: string; body?: string; employeeIds?: string[] };
+  let payload: { type?: string; body?: string; employeeIds?: string[]; link?: string };
   try {
     payload = await req.json();
   } catch {
     return jsonResponse({ error: "Ungültige Anfrage" }, 400);
   }
-  const { type, body } = payload;
+  const { type, body, link } = payload;
   if (!type || !body?.trim()) {
     return jsonResponse({ error: "type und body sind erforderlich" }, 400);
   }
@@ -120,7 +124,8 @@ Deno.serve(async (req) => {
       type,
       target_employee_id,
       body,
-      channel: "web_push"
+      channel: "web_push",
+      link: link || null
     }))
   );
 
@@ -130,7 +135,7 @@ Deno.serve(async (req) => {
     .in("employee_id", targetIds);
 
   const title = TITLE_BY_TYPE[type] ?? "Ella";
-  const payloadJson = JSON.stringify({ title, body, url: "/home" });
+  const payloadJson = JSON.stringify({ title, body, url: link || "/home" });
 
   // Parallel statt nacheinander verschickt (Feedback: "Das Veröffentlichen des
   // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — bei mehreren

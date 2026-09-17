@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   type AppNotification,
   type Employee,
@@ -14,6 +15,7 @@ import { IconBell } from "./icons";
 // (lib/push.ts, Edge Function send-push) — diese Liste liest nur das dabei
 // gleich mitgeschriebene notifications_log, kein eigener Push-Empfang hier.
 export function NotificationBell({ employee }: { employee: Employee }) {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
   const loadedOnce = useRef(false);
@@ -38,10 +40,19 @@ export function NotificationBell({ employee }: { employee: Employee }) {
     if (!loadedOnce.current) await load();
   }
 
+  // Feedback: "wenn ich oben auf die Glocke tippe und dann auf die
+  // Benachrichtigung wäre es schön wenn die Benachrichtigung dann gelesen
+  // ist und ich in die Kalenderansicht oder Backansicht springe um die es
+  // geht" — n.link (von send-push beim Anlegen mitgeschrieben, s.
+  // publishShiftMonth() in AdminPlanning.tsx) legt fest, wohin.
   async function onItemClick(n: AppNotification) {
     if (!n.read_at) {
       await markNotificationRead(n.id);
       setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, read_at: new Date().toISOString() } : x)));
+    }
+    if (n.link) {
+      setOpen(false);
+      navigate(n.link);
     }
   }
 

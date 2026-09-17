@@ -234,12 +234,17 @@ export type AppNotification = {
   body: string;
   sent_at: string;
   read_at: string | null;
+  // Relativer App-Pfad, den die Benachrichtigung beim Antippen ansteuern soll
+  // (z. B. "/kalender?date=2026-09-01" nach Veröffentlichen des Dienstplans
+  // für September) — s. NotificationBell.tsx. Bei älteren Zeilen vor diesem
+  // Feature oder Typen ohne sinnvolles Ziel (z. B. Ankündigungen) null.
+  link: string | null;
 };
 
 export async function fetchMyNotifications(employeeId: string): Promise<AppNotification[]> {
   const { data } = await supabase
     .from("notifications_log")
-    .select("id,type,body,sent_at,read_at")
+    .select("id,type,body,sent_at,read_at,link")
     .eq("target_employee_id", employeeId)
     .order("sent_at", { ascending: false })
     .limit(20);
@@ -270,14 +275,15 @@ export async function markAllNotificationsRead(employeeId: string) {
 export async function notifyEmployees(
   employeeIds: string[],
   type: AppNotification["type"],
-  body: string
+  body: string,
+  link?: string
 ): Promise<string | null> {
   if (employeeIds.length === 0) return null;
   const {
     data: { session }
   } = await supabase.auth.getSession();
   if (!session) return "Nicht angemeldet";
-  const result = await callEdgeFunction("send-push", { employeeIds, type, body }, session.access_token);
+  const result = await callEdgeFunction("send-push", { employeeIds, type, body, link }, session.access_token);
   return result.ok ? null : result.error || "Benachrichtigung konnte nicht gesendet werden";
 }
 

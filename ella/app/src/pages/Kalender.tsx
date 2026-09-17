@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
 import { icsFeedUrl } from "../lib/ics";
 import {
@@ -10,6 +11,7 @@ import {
   monthGrid,
   monthLabel,
   monthStartOf,
+  parseDateStr,
   toDateStr
 } from "../lib/dates";
 
@@ -32,9 +34,16 @@ function hoursBetween(from: string, to: string): number {
 
 export function Kalender({ employee }: { employee: Employee }) {
   const todayStr = toDateStr(new Date());
-  const [monthStart, setMonthStart] = useState(() => monthStartOf(new Date()));
+  // Von einer Benachrichtigung aus verlinkt (z. B. "/kalender?date=2026-09-01"
+  // nach Veröffentlichen des Septemberplans, s. NotificationBell.tsx) —
+  // Monat und ausgewählter Tag starten dann direkt beim richtigen Ziel statt
+  // beim aktuellen Monat/heute.
+  const [searchParams] = useSearchParams();
+  const linkedDateParam = searchParams.get("date");
+  const linkedDate = linkedDateParam ? parseDateStr(linkedDateParam) : null;
+  const [monthStart, setMonthStart] = useState(() => monthStartOf(linkedDate ?? new Date()));
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(todayStr);
+  const [selectedDate, setSelectedDate] = useState<string | null>(linkedDateParam ?? todayStr);
   const [billingStartDay, setBillingStartDay] = useState(1);
   const [serviceDays, setServiceDays] = useState<number[]>([3, 4, 5, 6]);
   const [ownBakeDates, setOwnBakeDates] = useState<Set<string>>(new Set());
