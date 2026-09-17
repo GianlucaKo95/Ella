@@ -54,6 +54,9 @@ export function Home({ employee }: { employee: Employee }) {
   const [weekSwapPickerFor, setWeekSwapPickerFor] = useState<string | null>(null);
   const [weekSwapTarget, setWeekSwapTarget] = useState("");
   const [weekSwapTargetUnavailable, setWeekSwapTargetUnavailable] = useState(false);
+  const [sickReportFor, setSickReportFor] = useState<string | null>(null);
+  const [sickReason, setSickReason] = useState("");
+  const [sickSubmitting, setSickSubmitting] = useState(false);
 
   const today = toDateStr(new Date());
   const weekDays = Array.from({ length: 7 }, (_, i) => toDateStr(addDays(new Date(), i)));
@@ -208,10 +211,14 @@ export function Home({ employee }: { employee: Employee }) {
     load();
   }
 
+  function shiftLabel(date: string, shiftType: "frueh" | "spaet") {
+    const d = new Date(date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+    return `${d} · ${shiftType === "frueh" ? "Früh" : "Spät"}`;
+  }
+
   function swapLabel(s: SwapRow) {
     if (!s.shifts) return "";
-    const d = new Date(s.shifts.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
-    return `${d} · ${s.shifts.shift_type === "frueh" ? "Früh" : "Spät"}`;
+    return shiftLabel(s.shifts.date, s.shifts.shift_type);
   }
 
   const swapStatusLabel: Record<SwapRow["status"], string> = {
@@ -246,6 +253,20 @@ export function Home({ employee }: { employee: Employee }) {
       setWeekSwapTarget("");
       setWeekSwapTargetUnavailable(false);
     }
+  }
+
+  async function reportSickness(shiftId: string, date: string, shiftType: "frueh" | "spaet") {
+    const reason = sickReason.trim();
+    if (!reason) return;
+    setSickSubmitting(true);
+    const { error } = await supabase.rpc("report_shift_absence", { target_shift_id: shiftId, reason });
+    if (!error) {
+      await notifyAdmins("shift_cancelled", `${employee.name} hat eine Schicht abgesagt (${shiftLabel(date, shiftType)}): ${reason}`);
+      setSickReportFor(null);
+      setSickReason("");
+      load();
+    }
+    setSickSubmitting(false);
   }
 
   return (
@@ -403,14 +424,50 @@ export function Home({ employee }: { employee: Employee }) {
                           </p>
                         )}
                       </div>
+                    ) : sickReportFor === s.id ? (
+                      <div style={{ margin: "0 0 0.5rem" }}>
+                        <textarea
+                          rows={2}
+                          style={{ width: "100%", resize: "vertical" }}
+                          placeholder="Begründung (Pflichtfeld, z. B. krank)…"
+                          value={sickReason}
+                          onChange={(e) => setSickReason(e.target.value)}
+                        />
+                        <div className="row-actions" style={{ marginTop: "0.3rem" }}>
+                          <button
+                            style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                            disabled={!sickReason.trim() || sickSubmitting}
+                            onClick={() => reportSickness(s.id, s.date, s.shift_type)}
+                          >
+                            Absagen bestätigen
+                          </button>
+                          <button
+                            className="ghost"
+                            style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                            onClick={() => {
+                              setSickReportFor(null);
+                              setSickReason("");
+                            }}
+                          >
+                            Abbrechen
+                          </button>
+                        </div>
+                      </div>
                     ) : (
-                      <p style={{ margin: "0 0 0.5rem" }}>
+                      <p className="row-actions" style={{ margin: "0 0 0.5rem" }}>
                         <button
                           className="ghost"
                           style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
                           onClick={() => setWeekSwapPickerFor(s.id)}
                         >
                           Tauschen
+                        </button>
+                        <button
+                          className="ghost"
+                          style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                          onClick={() => setSickReportFor(s.id)}
+                        >
+                          Absagen (krank o. ä.)
                         </button>
                       </p>
                     )}

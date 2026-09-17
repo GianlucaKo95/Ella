@@ -229,7 +229,8 @@ export type AppNotification = {
     | "announcement"
     | "swap_accepted"
     | "availability_submitted"
-    | "reminder";
+    | "reminder"
+    | "shift_cancelled";
   body: string;
   sent_at: string;
   read_at: string | null;
@@ -281,11 +282,12 @@ export async function notifyEmployees(
 }
 
 // Von einer normalen Mitarbeiter-Session aus alle Admins benachrichtigen
-// (Schichttausch wartet auf Bestätigung, Verfügbarkeit eingereicht) — welche
-// Mitarbeiter das sind, bestimmt ausschließlich die Edge Function serverseitig,
-// damit niemand über diesen Weg beliebige andere Mitarbeiter benachrichtigen kann.
+// (Schichttausch wartet auf Bestätigung, Verfügbarkeit eingereicht, Schicht
+// krankheitsbedingt abgesagt) — welche Mitarbeiter das sind, bestimmt
+// ausschließlich die Edge Function serverseitig, damit niemand über diesen
+// Weg beliebige andere Mitarbeiter benachrichtigen kann.
 export async function notifyAdmins(
-  type: Extract<AppNotification["type"], "swap_accepted" | "availability_submitted">,
+  type: Extract<AppNotification["type"], "swap_accepted" | "availability_submitted" | "shift_cancelled">,
   body: string
 ): Promise<string | null> {
   const {

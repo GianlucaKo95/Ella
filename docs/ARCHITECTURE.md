@@ -466,3 +466,31 @@ Host-Port `3050` wurde gewählt, weil auf demselben HA-Host bereits andere eigen
 Host-Ports belegen: `re-assistant` (3000), `polier-pro` (3001), `swap-bid` (3045),
 `daily-nest-plans` (8099 — deshalb *nicht* für Ella verwendet, obwohl der Container intern
 weiterhin auf 8099 lauscht). `mg2abrp` hat keine Web-UI (nur MQTT) und belegt keinen Port.
+
+## 18. Schichtabsage (Krankmeldung)
+Feedback: "Momentan kann niemand eine Schicht auf Grund von Krankheit oder ähnlichem einfach
+absagen. Diese Funktion brauchen wir noch. Mit Freitextfeld für eine Begründung das
+verpflichtend ist. Der Admin soll darüber dann eine Benachrichtigung bekommen und die Schicht
+dann trotz veröffentlichtem Plan wieder änderbar sein."
+
+Admins konnten veröffentlichte Schichten schon immer jederzeit ändern (`shifts_write_admin`
+kennt keine Sperre nach Veröffentlichung, §6) — der fehlende Teil war, dass ein Mitarbeiter
+selbst (ohne Admin-Rechte auf `shifts`) seine eigene, bereits veröffentlichte Schicht als
+"abgesagt" protokollieren und dabei automatisch wieder freigeben kann, damit der Admin sie in
+der Planung sofort neu besetzt sieht.
+
+Neue Tabelle `shift_cancellations` (`shift_id`, `employee_id`, `reason` — `check (length(trim(reason)) > 0)`,
+verhindert leere Begründungen zusätzlich zum Pflichtfeld im UI). Schreiben passiert ausschließlich
+über die SECURITY DEFINER Funktion `report_shift_absence(target_shift_id, reason)` (Migration
+`0028_shift_cancellations.sql`, gleiches Muster wie `update_my_name()` in §6/Migration 0004):
+prüft, dass der Aufrufer tatsächlich aktuell auf die Schicht eingeteilt ist, protokolliert den
+Eintrag und setzt `shifts.employee_id = null` — die Schicht bleibt `published`, taucht aber ab
+sofort überall als unbesetzt auf und ist für den Admin ganz normal (wieder-)zuweisbar, ohne dass
+eine offene Update-Policy auf die ganze `shifts`-Tabelle nötig wäre.
+
+Neuer Benachrichtigungstyp `shift_cancelled` (`EMPLOYEE_TRIGGERED_TYPES` in `send-push`, wie
+`swap_accepted`/`availability_submitted`): jede angemeldete Person darf ihn auslösen, Ziel sind
+serverseitig immer alle aktiven Admins. UI in Home.tsx ("Meine Woche"): pro eigener Schicht neben
+"Tauschen" ein zweiter Button "Absagen (krank o. ä.)", öffnet ein Pflicht-Freitextfeld
+(Bestätigen-Button bleibt disabled, solange die Begründung leer ist); nach Bestätigung `rpc("report_shift_absence", …)`
+gefolgt von `notifyAdmins("shift_cancelled", …)`.

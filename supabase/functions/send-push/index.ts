@@ -8,8 +8,9 @@
 // Header: Authorization: Bearer <access_token der aufrufenden Person>
 //
 // Berechtigung je nach type:
-//   - 'swap_accepted' / 'availability_submitted': jede angemeldete, aktive
-//     Person darf das auslösen (passiert automatisch nach eigener Aktion),
+//   - 'swap_accepted' / 'availability_submitted' / 'shift_cancelled': jede
+//     angemeldete, aktive Person darf das auslösen (passiert automatisch nach
+//     eigener Aktion),
 //     `employeeIds` aus dem Body wird dabei IGNORIERT — Ziel sind serverseitig
 //     immer alle aktiven Admins, damit niemand über diesen Weg Benachrichtigungen
 //     an beliebige andere Mitarbeiter umleiten kann.
@@ -30,7 +31,7 @@ const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com";
 
 const ADMIN_ONLY_TYPES = new Set(["shift_published", "bake_plan_published", "announcement", "reminder"]);
-const EMPLOYEE_TRIGGERED_TYPES = new Set(["swap_accepted", "availability_submitted"]);
+const EMPLOYEE_TRIGGERED_TYPES = new Set(["swap_accepted", "availability_submitted", "shift_cancelled"]);
 
 const TITLE_BY_TYPE: Record<string, string> = {
   shift_published: "Dienstplan veröffentlicht",
@@ -38,7 +39,8 @@ const TITLE_BY_TYPE: Record<string, string> = {
   announcement: "Neue Ankündigung",
   swap_accepted: "Schichttausch wartet auf Bestätigung",
   availability_submitted: "Verfügbarkeit eingereicht",
-  reminder: "Erinnerung"
+  reminder: "Erinnerung",
+  shift_cancelled: "Schicht abgesagt"
 };
 
 const CORS_HEADERS = {
