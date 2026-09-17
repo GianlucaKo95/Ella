@@ -592,9 +592,11 @@ button.cal-day {
 }
 /* Früh + Spät am selben Tag (Ganztags) — gefüllter Punkt (wie Früh) plus
    Ring-Halo (wie Spät), statt nur einen der beiden Einzel-Punkte zu zeigen
-   und dadurch die andere Schicht zu verschlucken. */
+   und dadurch die andere Schicht zu verschlucken. Bewusst in Rot statt
+   Grün/Akzentfarbe (Feedback: "setzt sich nicht stark genug von den
+   anderen ab"), damit er auch neben Früh/Spät sofort auffällt. */
 .cal-dot.own.ganztags {
-  background: var(--accent);
+  background: var(--attention);
   box-shadow: 0 0 0 1.5px var(--surface);
   width: 6px;
   height: 6px;
