@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, notifyEmployees, notifyAdmins, uploadAnnouncementImage, type Employee } from "../lib/supabase";
-import { toDateStr, addDays, nextMonthStart, monthLabel, toMonthStr } from "../lib/dates";
+import { toDateStr, addDays, addMonths, nextMonthStart, monthLabel, monthStartOf, toMonthStr } from "../lib/dates";
 
 type ShiftRow = {
   id: string;
@@ -109,6 +109,21 @@ export function Home({ employee }: { employee: Employee }) {
       .eq("month", nextMonthStr)
       .maybeSingle();
 
+    // Feedback: "ab Freigabe Schichtplan sollte es den MA möglich sein ihre
+    // Verfügbarkeiten für den nächsten Monat einzugeben" (Verfuegbarkeit.tsx)
+    // — dieselbe Freigabe entscheidet hier, ob die Erinnerungskarte überhaupt
+    // aufpoppt. Sie sonst schon zu zeigen, bevor der laufende Monat
+    // veröffentlicht ist, würde auf eine Verfügbarkeit-Seite verlinken, die
+    // in diesem Zustand ohnehin nur den Hinweis "noch nicht freigegeben"
+    // zeigt statt der Eingabemaske.
+    const currentMonthPublishedPromise = supabase
+      .from("shifts")
+      .select("id")
+      .eq("status", "published")
+      .gte("date", toDateStr(monthStartOf(new Date())))
+      .lt("date", toDateStr(addMonths(monthStartOf(new Date()), 1)))
+      .limit(1);
+
     const announcementsPromise = supabase
       .from("announcements")
       .select("id,body,image_url,created_at,employees(name)")
@@ -139,6 +154,7 @@ export function Home({ employee }: { employee: Employee }) {
       todayShiftsRes,
       bakesRes,
       submissionRes,
+      currentMonthPublishedRes,
       announcementsRes,
       incomingSwapsRes,
       outgoingSwapsRes,
@@ -149,6 +165,7 @@ export function Home({ employee }: { employee: Employee }) {
       todayShiftsPromise,
       bakesPromise,
       submissionPromise,
+      currentMonthPublishedPromise,
       announcementsPromise,
       incomingSwapsPromise,
       outgoingSwapsPromise,
@@ -161,8 +178,11 @@ export function Home({ employee }: { employee: Employee }) {
     setBakes((bakesRes.data as BakeRow[]) || []);
     // Admins müssen keine Verfügbarkeit abgeben (§9/§11) — für sie soll die
     // Erinnerung nie aufpoppen, unabhängig vom (bei ihnen ohnehin nie
-    // ausgefüllten) Einreichungsstatus.
-    setNeedsAvailability(employee.role !== "admin" && !submissionRes.data);
+    // ausgefüllten) Einreichungsstatus. Ebenso kein Aufpoppen, solange der
+    // laufende Monat noch nicht veröffentlicht ist (s. o.).
+    setNeedsAvailability(
+      employee.role !== "admin" && !submissionRes.data && (currentMonthPublishedRes.data?.length ?? 0) > 0
+    );
     setAnnouncements((announcementsRes.data as unknown as Announcement[]) || []);
     setIncomingSwaps((incomingSwapsRes.data as unknown as SwapRow[]) || []);
     setOutgoingSwaps((outgoingSwapsRes.data as unknown as SwapRow[]) || []);

@@ -90,7 +90,6 @@ type BakeEntryRow = {
   category: "kuchen" | "boden";
 };
 type BakeTeam = { id: string; name: string };
-type AuditEntry = { id: string; entity: "shift" | "bake_entry"; date: string; change_summary: string; changed_at: string };
 type PendingSwap = {
   id: string;
   status: "accepted";
@@ -199,8 +198,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [newCakeRecipe, setNewCakeRecipe] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
-  const [shiftAuditLog, setShiftAuditLog] = useState<AuditEntry[]>([]);
-  const [bakeAuditLog, setBakeAuditLog] = useState<AuditEntry[]>([]);
   const push = usePushToggle(employee.id);
   // Schichtplanung: nur ein Tag gleichzeitig aufgeklappt (Akkordeon statt
   // mehrerer unabhängiger Klapp-Zustände wie bei Kuchen/Mitarbeitern) — bei
@@ -284,8 +281,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       deadlineRes,
       submissionsRes,
       swapsRes,
-      shiftAuditRes,
-      bakeAuditRes,
       specialRes
     ] = await Promise.all([
       supabase.from("employees").select("id,name,role,active,bake_team_id").eq("active", true),
@@ -306,24 +301,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
           "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
         )
         .eq("status", "accepted"),
-      supabase
-        .from("plan_audit_log")
-        .select("id,entity,date,change_summary,changed_at")
-        .eq("entity", "shift")
-        .gte("date", toDateStr(planMonth))
-        .lt("date", toDateStr(addMonths(planMonth, 1)))
-        .order("changed_at", { ascending: false })
-        .limit(50),
-      // Backplanung läuft wochenweise (s. o.) — das Änderungsprotokoll dafür
-      // deckt entsprechend nur die angezeigte Woche ab, nicht den ganzen Monat.
-      supabase
-        .from("plan_audit_log")
-        .select("id,entity,date,change_summary,changed_at")
-        .eq("entity", "bake_entry")
-        .gte("date", toDateStr(planWeek))
-        .lt("date", toDateStr(addDays(planWeek, 7)))
-        .order("changed_at", { ascending: false })
-        .limit(50),
       supabase.from("special_days").select("*").order("date")
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
@@ -339,8 +316,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
-    setShiftAuditLog((shiftAuditRes.data as AuditEntry[]) || []);
-    setBakeAuditLog((bakeAuditRes.data as AuditEntry[]) || []);
     setSpecialDays((specialRes.data as SpecialDay[]) || []);
   }
 
@@ -665,9 +640,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
 
   // Start-/Endzeit bleiben nach dem Anlegen weiterhin änderbar (Feedback:
   // "auch wenn vorverlegt zusätzlich bearbeitbar") — z. B. wenn eine
-  // Frühschicht ausnahmsweise später beginnt. Der bereits bestehende Trigger
-  // `log_shift_change` (Migration 0008) protokolliert eine Zeitänderung an
-  // einer schon veröffentlichten Schicht automatisch im Änderungsprotokoll.
+  // Frühschicht ausnahmsweise später beginnt.
   async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
     const { error } = await supabase.from("shifts").update(patch).eq("id", id);
     if (error) alert(`Zeit konnte nicht geändert werden: ${error.message}`);
@@ -904,23 +877,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
             </div>
           )}
 
-          {shiftAuditLog.length > 0 && (
-            <div className="card">
-              <h3>Änderungsprotokoll ({monthLabel(planMonth)})</h3>
-              <p className="hint">Nachträgliche Änderungen an bereits veröffentlichten Schichten.</p>
-              {shiftAuditLog.map((a) => (
-                <div className="shift-line" key={a.id}>
-                  <span className="tag">{new Date(a.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>
-                  <span>{a.change_summary}</span>
-                  <span className="who">
-                    {new Date(a.changed_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}{" "}
-                    {new Date(a.changed_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
           <button onClick={publishShiftMonth}>📣 Dienstplan für {monthLabel(planMonth)} veröffentlichen</button>
 
           <h3 style={{ marginTop: "1rem" }}>
@@ -1059,23 +1015,6 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
 
       {tab === "back" && (
         <>
-          {bakeAuditLog.length > 0 && (
-            <div className="card">
-              <h3>Änderungsprotokoll (Woche {weekLabel(planWeek)})</h3>
-              <p className="hint">Nachträgliche Änderungen an bereits veröffentlichten Backeinträgen.</p>
-              {bakeAuditLog.map((a) => (
-                <div className="shift-line" key={a.id}>
-                  <span className="tag">{new Date(a.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>
-                  <span>{a.change_summary}</span>
-                  <span className="who">
-                    {new Date(a.changed_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}{" "}
-                    {new Date(a.changed_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
           {unassignedBakeEntries.length > 0 && publishWarningAck && (
             <div className="card card-attention">
               <p className="hint warn" style={{ margin: 0 }}>
