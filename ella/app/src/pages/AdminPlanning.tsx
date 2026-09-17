@@ -776,11 +776,25 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       .update({ status: "published" })
       .in("date", bkDateStrs)
       .eq("status", "draft")
-      .select("id");
+      .select("id, bake_team_id");
     if (error) {
       alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
       return;
     }
+    // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
+    // — bisher löste nur das Veröffentlichen des Dienstplans eine
+    // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
+    // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
+    // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
+    // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
+    // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
+    // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
+    // Datums-Parameter.
+    const publishedTeamIds = new Set(
+      (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
+    );
+    const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
+    notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
     setPublishWarningAck(false);
     alert(
       publishedEntries.length > 0

@@ -263,17 +263,26 @@ Home-Assistant-Companion-App hängt das von deren WebView-Version ab).
   `useNavigate()` dorthin (zusätzlich zum bisherigen "als gelesen markieren");
   `Kalender.tsx` liest dafür einen `date`-Query-Parameter beim Laden aus und
   initialisiert Monat **und** ausgewählten Tag darüber statt mit dem
-  aktuellen Monat/heute. Für Backpläne gibt es aktuell noch keine
-  Mitarbeiter-Benachrichtigung (`publishBakeWeek()` ruft `notifyEmployees()`
-  nicht auf) — der Mechanismus ist aber bereits allgemein gehalten (Ziel
-  kommt vollständig aus `link`, keine Typ-Fallunterscheidung in der Glocke),
-  ließe sich also ohne Änderung an Glocke/Migration ergänzen, sobald das
-  gewünscht ist. Bewusst nicht angefasst: ein bereits offener Tab reagiert
-  auf einen nativen Push-Klick weiterhin nur mit `focus()` statt zusätzlich
-  zum Sprungziel zu navigieren (`sw.ts`, `notificationclick`) — das würde
-  eine `postMessage`-Brücke zwischen Service Worker und offener Seite
-  brauchen; nur das neu geöffnete Fenster (kein Tab bereits offen) nutzt
-  `url` schon heute.
+  aktuellen Monat/heute. Bewusst nicht angefasst: ein bereits offener Tab
+  reagiert auf einen nativen Push-Klick weiterhin nur mit `focus()` statt
+  zusätzlich zum Sprungziel zu navigieren (`sw.ts`, `notificationclick`) —
+  das würde eine `postMessage`-Brücke zwischen Service Worker und offener
+  Seite brauchen; nur das neu geöffnete Fenster (kein Tab bereits offen)
+  nutzt `url` schon heute.
+
+  **Backplan-Veröffentlichung benachrichtigt jetzt auch** (Feedback: "Die
+  Backplanung Benachrichtigung muss noch ergänzt werden" — ursprünglich löste
+  nur `publishShiftMonth()` eine Benachrichtigung aus, `bake_plan_published`
+  war zwar seit Migration `0001_init.sql` als Typ vorbereitet und in
+  `send-push`/`TITLE_BY_TYPE` fertig verdrahtet, aber nie aufgerufen):
+  `publishBakeWeek()` ruft jetzt ebenfalls `notifyEmployees()` auf. Backeinträge
+  werden über die ganze Truppe (`bake_team_id`) zugewiesen, nicht pro Person —
+  Ziel sind deshalb alle Mitglieder jeder Truppe, die mindestens einen
+  veröffentlichten Eintrag dieser Woche bekommen hat (ein Backeintrag ohne
+  Truppe betrifft niemanden). `link` ist schlicht `/backen` ohne Datums-Parameter,
+  da `Backen.tsx` (anders als der Kalender) keine eigene Wochen-/Monatsnavigation
+  hat, sondern immer alle veröffentlichten Termine ab heute zeigt — "richtige
+  Woche" ist dort implizit immer der Fall.
 
   **Bugfix: Veröffentlichen fühlte sich langsam an** (Feedback: "Das
   Veröffentlichen des Plans dauert bis zu 20 Sekunden bis die Meldung kommt
