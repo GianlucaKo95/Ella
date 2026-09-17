@@ -99,6 +99,11 @@ type PendingSwap = {
   offered_to_employee: { name: string } | null;
   shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
 };
+// Schlankere Neuauflage des in Migration 0031 entfernten Änderungsprotokolls
+// (Feedback: "Das Änderungsprotokoll wird auch nur für Schichten gebraucht
+// die getauscht werden nicht für Schichten die vom Admin geändert wurden")
+// — nur Schichttausch-Bestätigungen, s. confirmSwap().
+type SwapLogEntry = { id: string; date: string; change_summary: string; changed_at: string };
 type Tab = "schicht" | "back" | "einstellungen";
 
 // Stunde/Minute getrennt als <select> statt eines nativen <input type="time">
@@ -197,6 +202,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [newCakeIngredients, setNewCakeIngredients] = useState("");
   const [newCakeRecipe, setNewCakeRecipe] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
+  const [swapLog, setSwapLog] = useState<SwapLogEntry[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const push = usePushToggle(employee.id);
   // Schichtplanung: nur ein Tag gleichzeitig aufgeklappt (Akkordeon statt
@@ -281,6 +287,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       deadlineRes,
       submissionsRes,
       swapsRes,
+      swapLogRes,
       specialRes
     ] = await Promise.all([
       supabase.from("employees").select("id,name,role,active,bake_team_id").eq("active", true),
@@ -301,6 +308,13 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
           "id,status,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
         )
         .eq("status", "accepted"),
+      supabase
+        .from("shift_swap_log")
+        .select("id,date,change_summary,changed_at")
+        .gte("date", toDateStr(planMonth))
+        .lt("date", toDateStr(addMonths(planMonth, 1)))
+        .order("changed_at", { ascending: false })
+        .limit(50),
       supabase.from("special_days").select("*").order("date")
     ]);
     setEmployees((emp.data as EmployeeRow[]) || []);
@@ -316,6 +330,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
+    setSwapLog((swapLogRes.data as SwapLogEntry[]) || []);
     setSpecialDays((specialRes.data as SpecialDay[]) || []);
   }
 
@@ -780,6 +795,20 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   async function confirmSwap(swap: PendingSwap) {
     await supabase.from("shifts").update({ employee_id: swap.offered_to }).eq("id", swap.shift_id);
     await supabase.from("shift_swap_requests").update({ status: "confirmed" }).eq("id", swap.id);
+    // Nur diese Stelle schreibt ins Schichttausch-Protokoll — eine normale
+    // Zuweisung/Zeitänderung durch den Admin (assignShift(), updateShiftTime())
+    // bleibt bewusst unprotokolliert (Feedback: "Das Änderungsprotokoll wird
+    // auch nur für Schichten gebraucht die getauscht werden nicht für
+    // Schichten die vom Admin geändert wurden").
+    if (swap.shifts) {
+      await supabase.from("shift_swap_log").insert({
+        shift_id: swap.shift_id,
+        date: swap.shifts.date,
+        change_summary: `${swap.requested_by_employee?.name ?? "?"} → ${swap.offered_to_employee?.name ?? "?"} (${
+          swap.shifts.shift_type === "frueh" ? "Früh" : "Spät"
+        })`
+      });
+    }
     loadAll();
   }
 
@@ -871,6 +900,23 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                     >
                       Ablehnen
                     </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {swapLog.length > 0 && (
+            <div className="card">
+              <h3>Schichttausch-Protokoll ({monthLabel(planMonth)})</h3>
+              <p className="hint">Bestätigte Schichttausche.</p>
+              {swapLog.map((a) => (
+                <div className="shift-line" key={a.id}>
+                  <span className="tag">{new Date(a.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>
+                  <span>{a.change_summary}</span>
+                  <span className="who">
+                    {new Date(a.changed_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}{" "}
+                    {new Date(a.changed_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
               ))}
