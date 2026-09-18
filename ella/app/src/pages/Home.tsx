@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, notifyEmployees, notifyAdmins, uploadAnnouncementImage, type Employee } from "../lib/supabase";
 import { toDateStr, addDays, addMonths, monthLabel, monthStartOf, parseDateStr, toMonthStr } from "../lib/dates";
+import { Avatar } from "../components/Avatar";
 
 type ShiftRow = {
   id: string;
@@ -11,7 +12,7 @@ type ShiftRow = {
   start_time: string;
   end_time: string;
 };
-type TodayShiftRow = ShiftRow & { employee_id: string; employees: { name: string } | null };
+type TodayShiftRow = ShiftRow & { employee_id: string; employees: { name: string; avatar_url: string | null } | null };
 type BakeRow = {
   id: string;
   date: string;
@@ -85,7 +86,7 @@ export function Home({ employee }: { employee: Employee }) {
       // `employees!employee_id(...)`: `shifts` hat mit `employee_id` und
       // `created_by` zwei Fremdschlüssel auf `employees`, der Spalten-Hint
       // löst die sonst mehrdeutige Einbettung auf (siehe Kalender.tsx).
-      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees!employee_id(name)")
+      .select("id,date,shift_type,role_tag,start_time,end_time,employee_id,employees!employee_id(name,avatar_url)")
       .eq("date", today)
       .eq("status", "published")
       .order("start_time");
@@ -326,6 +327,7 @@ export function Home({ employee }: { employee: Employee }) {
         {todayShifts.map((s) => (
           <div className="shift-line" key={s.id}>
             <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
+            <Avatar name={s.employees?.name ?? "?"} avatarUrl={s.employees?.avatar_url} size={28} />
             <span>
               {s.employees?.name ?? "–"}
               {s.role_tag ? ` · ${s.role_tag}` : ""}
