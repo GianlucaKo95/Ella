@@ -3,7 +3,7 @@ import { fetchAppSettings, notifyAdmins, supabase, type Employee } from "../lib/
 import {
   DAY_NAMES,
   RELEVANT_DAYS,
-  nextMonthStart,
+  addMonths,
   monthLabel,
   monthStartOf,
   monthDaysMatching,
@@ -99,9 +99,13 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   // der Datenbank existiert (Feedback: "als Check-Box an den Tag anfügen und
   // wenn der Haken gesetzt ist ein Feld mit dem zu verknüpfenden Tag öffnet").
   const [pendingEitherOr, setPendingEitherOr] = useState<Set<string>>(new Set());
-
-  const nextMonth = nextMonthStart(new Date());
-  const nextMonthStr = toMonthStr(nextMonth);
+  // Einreichbarer Monat — kein fester "heute + 1 Monat" mehr, sondern immer
+  // der Monat direkt nach dem zuletzt tatsächlich veröffentlichten (Feedback:
+  // "Es soll unabhängig davon sein ob es eine offene Schicht im nächsten
+  // Monat gibt oder nicht. Sobald der Schichtplan für bspw. Oktober
+  // veröffentlicht ist, sollen die MA ihre Zeiten für November eintragen
+  // können"). `null`, solange noch nie irgendein Monat veröffentlicht wurde.
+  const [targetMonth, setTargetMonth] = useState<Date | null>(null);
 
   // Nur Tage, an denen das Café geöffnet ist (service_days) — nicht die
   // Back-Tage: Backeinträge werden per Truppe zugewiesen (AdminPlanning),
@@ -120,23 +124,40 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
 
   async function load() {
     setLoading(true);
-    const [entriesRes, deadlineRes, submissionRes, publishedRes, eitherOrRes] = await Promise.all([
+    const [entriesRes, publishedRes, eitherOrRes] = await Promise.all([
       supabase.from("availability_entries").select("*").eq("employee_id", employee.id).order("day_of_week"),
-      supabase.from("availability_deadlines").select("deadline").eq("month", nextMonthStr).maybeSingle(),
-      supabase
-        .from("availability_submissions")
-        .select("submitted_at")
-        .eq("employee_id", employee.id)
-        .eq("month", nextMonthStr)
-        .maybeSingle(),
       supabase.from("shifts").select("date").eq("status", "published"),
       supabase.from("availability_either_or_pairs").select("id,date_a,date_b").eq("employee_id", employee.id)
     ]);
     setEntries((entriesRes.data as AvailabilityEntry[]) || []);
-    setDeadline(deadlineRes.data?.deadline ?? null);
-    setSubmittedAt(submissionRes.data?.submitted_at ?? null);
-    setPublishedDates(new Set(((publishedRes.data as { date: string }[]) || []).map((r) => r.date)));
+    const published = new Set(((publishedRes.data as { date: string }[]) || []).map((r) => r.date));
+    setPublishedDates(published);
     setEitherOrPairs((eitherOrRes.data as EitherOrPair[]) || []);
+
+    const latestPublishedMonth = Array.from(published).reduce<Date | null>((latest, dateStr) => {
+      const m = monthStartOf(parseDateStr(dateStr));
+      return !latest || m > latest ? m : latest;
+    }, null);
+    const target = latestPublishedMonth ? addMonths(latestPublishedMonth, 1) : null;
+    setTargetMonth(target);
+
+    if (target) {
+      const targetMonthStr = toMonthStr(target);
+      const [deadlineRes, submissionRes] = await Promise.all([
+        supabase.from("availability_deadlines").select("deadline").eq("month", targetMonthStr).maybeSingle(),
+        supabase
+          .from("availability_submissions")
+          .select("submitted_at")
+          .eq("employee_id", employee.id)
+          .eq("month", targetMonthStr)
+          .maybeSingle()
+      ]);
+      setDeadline(deadlineRes.data?.deadline ?? null);
+      setSubmittedAt(submissionRes.data?.submitted_at ?? null);
+    } else {
+      setDeadline(null);
+      setSubmittedAt(null);
+    }
     setLoading(false);
   }
 
@@ -157,11 +178,13 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   // Öffnungstage um einzelne Zusatztermine im einreichbaren Monat — auch ein
   // reiner frueh_exception-Sondertag (ohne zusätzliche Öffnung) braucht eine
   // Verfügbarkeitsabfrage, sonst könnte niemand "kann Früh" dafür angeben.
-  const extraServiceDates = specialDays
-    .filter((sd) => sd.service_exception || sd.frueh_exception)
-    .map((sd) => parseDateStr(sd.date))
-    .filter((d) => d.getFullYear() === nextMonth.getFullYear() && d.getMonth() === nextMonth.getMonth());
-  const relevantDates = mergeUniqueDates(monthDaysMatching(nextMonth, requiredDays), extraServiceDates);
+  const extraServiceDates = targetMonth
+    ? specialDays
+        .filter((sd) => sd.service_exception || sd.frueh_exception)
+        .map((sd) => parseDateStr(sd.date))
+        .filter((d) => d.getFullYear() === targetMonth.getFullYear() && d.getMonth() === targetMonth.getMonth())
+    : [];
+  const relevantDates = targetMonth ? mergeUniqueDates(monthDaysMatching(targetMonth, requiredDays), extraServiceDates) : [];
   const oneTimeEntries = entries.filter((e) => e.kind === "one_time");
   const oneTimeByDate = new Map(oneTimeEntries.map((e) => [e.specific_date as string, e]));
   // Jeder Tag steckt in höchstens einem Paar — als Map von jedem der beiden
@@ -261,27 +284,12 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
   // ein bereits veröffentlichter Tag ist ohnehin nicht mehr planbar.
   const openDates = relevantDates.filter((d) => !publishedDates.has(toDateStr(d)));
 
-  // Feedback: "ab Freigabe Schichtplan sollte es den MA möglich sein ihre
-  // Verfügbarkeiten für den nächsten Monat einzugeben" — vorher konnte die
-  // Verfügbarkeit für den Folgemonat rein datumsbasiert jederzeit eingetragen
-  // werden, unabhängig davon, ob der Admin den laufenden Monat überhaupt
-  // schon veröffentlicht hat. Als Freigabe-Signal zählt (wie beim Sperren
-  // einzelner Tage oben) mindestens eine veröffentlichte Schicht im
-  // laufenden Kalendermonat — ein exaktes "vollständig veröffentlicht"
-  // ließe sich ohne weiteren Zustand nicht robust bestimmen, und in der
-  // Praxis veröffentlicht der Admin einen Monat ohnehin in einem Zug.
-  const currentMonth = monthStartOf(new Date());
-  const currentMonthLabel = monthLabel(currentMonth);
-  const currentMonthPublished = Array.from(publishedDates).some((dateStr) => {
-    const d = parseDateStr(dateStr);
-    return d.getFullYear() === currentMonth.getFullYear() && d.getMonth() === currentMonth.getMonth();
-  });
-
   async function submitMonth() {
+    if (!targetMonth) return;
     await supabase
       .from("availability_submissions")
-      .upsert({ employee_id: employee.id, month: nextMonthStr }, { onConflict: "employee_id,month" });
-    await notifyAdmins("availability_submitted", `${employee.name} hat die Verfügbarkeit für ${monthLabel(nextMonth)} eingereicht`);
+      .upsert({ employee_id: employee.id, month: toMonthStr(targetMonth) }, { onConflict: "employee_id,month" });
+    await notifyAdmins("availability_submitted", `${employee.name} hat die Verfügbarkeit für ${monthLabel(targetMonth)} eingereicht`);
     load();
   }
 
@@ -289,12 +297,12 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     <div>
       <h2>Verfügbarkeit</h2>
 
-      <div className={`card ${submittedAt || !currentMonthPublished ? "" : isLate ? "card-attention" : ""}`}>
-        <h3>Verfügbarkeit für {monthLabel(nextMonth)}</h3>
-        {!loading && !currentMonthPublished ? (
+      <div className={`card ${submittedAt || !targetMonth ? "" : isLate ? "card-attention" : ""}`}>
+        <h3>Verfügbarkeit für {targetMonth ? monthLabel(targetMonth) : "den nächsten Monat"}</h3>
+        {!loading && !targetMonth ? (
           <p style={{ color: "var(--ink-soft)" }}>
-            Die Verfügbarkeit für {monthLabel(nextMonth)} kann erst eingetragen werden, sobald der Dienstplan für{" "}
-            {currentMonthLabel} veröffentlicht ist.
+            Es ist noch kein Dienstplan veröffentlicht. Sobald der Admin einen Monat veröffentlicht, kannst du hier
+            die Verfügbarkeit für den Folgemonat eintragen.
           </p>
         ) : (
           <>
@@ -318,7 +326,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
             )}
           </>
         )}
-        {!currentMonthPublished ? null : loading ? (
+        {!targetMonth ? null : loading ? (
           <p>Lädt…</p>
         ) : (
           <div>
@@ -445,9 +453,9 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
             })}
           </div>
         )}
-        {currentMonthPublished && !submittedAt && (
+        {targetMonth && !submittedAt && (
           <button onClick={submitMonth} disabled={!isComplete} style={{ marginTop: "0.8rem" }}>
-            Verfügbarkeit für {monthLabel(nextMonth)} einreichen
+            Verfügbarkeit für {monthLabel(targetMonth)} einreichen
           </button>
         )}
       </div>
