@@ -122,8 +122,18 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
       .then(({ data }) => setSpecialDays((data as SpecialDay[]) || []));
   }, []);
 
-  async function load() {
-    setLoading(true);
+  // `silent`: nach einer einzelnen Eingabe (Tages-Wahl, Notiz, Entweder/Oder)
+  // neu laden, ohne die Liste kurz durch "Lädt…" zu ersetzen (Feedback: "Wenn
+  // ich bei Verfügbarkeiten eine Eingabe mache springe ich automatisch wieder
+  // zum Anfang zurück. Das ist sehr nervig und macht die Eingabe schwer") —
+  // das kurze Verschwinden der (langen) Tagesliste ließ die Seite massiv
+  // einschrumpfen, der Browser hat die Scrollposition daraufhin auf
+  // die neue, viel kürzere Seite geklemmt und blieb dort, obwohl die Liste
+  // direkt danach wieder ihre volle Höhe bekam. Nur der allererste Ladevorgang
+  // (Seitenaufruf) zeigt noch "Lädt…", jede Neuladung nach einer eigenen
+  // Aktion aktualisiert die bereits sichtbare Liste an Ort und Stelle.
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     const [entriesRes, publishedRes, eitherOrRes] = await Promise.all([
       supabase.from("availability_entries").select("*").eq("employee_id", employee.id).order("day_of_week"),
       supabase.from("shifts").select("date").eq("status", "published"),
@@ -158,7 +168,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
       setDeadline(null);
       setSubmittedAt(null);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 
   useEffect(() => {
@@ -224,7 +234,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
     const existing = oneTimeByDate.get(dateStr);
     if (!existing) return;
     await supabase.from("availability_entries").update({ note: note.trim() || null }).eq("id", existing.id);
-    load();
+    load(true);
   }
 
   async function setDayAvailability(dateStr: string, choice: DayChoice) {
@@ -248,7 +258,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
         ...patch
       });
     }
-    load();
+    load(true);
   }
 
   // Ersetzt (löscht zuerst) ein eventuell schon bestehendes Paar für diesen
@@ -266,7 +276,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
         date_b: partnerDateStr
       });
     }
-    load();
+    load(true);
   }
 
   // Ein gesperrter Tag (Dienstplan schon veröffentlicht) zählt nicht als
@@ -290,7 +300,7 @@ export function Verfuegbarkeit({ employee }: { employee: Employee }) {
       .from("availability_submissions")
       .upsert({ employee_id: employee.id, month: toMonthStr(targetMonth) }, { onConflict: "employee_id,month" });
     await notifyAdmins("availability_submitted", `${employee.name} hat die Verfügbarkeit für ${monthLabel(targetMonth)} eingereicht`);
-    load();
+    load(true);
   }
 
   return (
