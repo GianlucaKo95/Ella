@@ -55,7 +55,13 @@ export function Home({ employee }: { employee: Employee }) {
   const [swapRequestedShiftIds, setSwapRequestedShiftIds] = useState<Set<string>>(new Set());
   const [weekSwapPickerFor, setWeekSwapPickerFor] = useState<string | null>(null);
   const [weekSwapTarget, setWeekSwapTarget] = useState("");
-  const [weekSwapTargetUnavailable, setWeekSwapTargetUnavailable] = useState(false);
+  // Feedback: "Momentan werden mir beim Tauschvorschlag alle angezeigt und
+  // nicht nur die die 'Kann' für diesen Tag und Schicht angeklickt haben" —
+  // ersetzt die vorherige "alle anzeigen + nach Auswahl dezent warnen"-Logik
+  // (is_colleague_available) durch eine echte Eingrenzung der Auswahl selbst
+  // (colleagues_available_for, Migration 0033, s. Kalender.tsx).
+  const [availableWeekSwapColleagues, setAvailableWeekSwapColleagues] = useState<{ id: string; name: string }[]>([]);
+  const [weekSwapColleaguesLoading, setWeekSwapColleaguesLoading] = useState(false);
   const [sickReportFor, setSickReportFor] = useState<string | null>(null);
   const [sickReason, setSickReason] = useState("");
   const [sickSubmitting, setSickSubmitting] = useState(false);
@@ -249,17 +255,17 @@ export function Home({ employee }: { employee: Employee }) {
     cancelled: "zurückgezogen"
   };
 
-  async function checkWeekSwapTarget(colleagueId: string, dateStr: string, startTime: string) {
-    if (!colleagueId) {
-      setWeekSwapTargetUnavailable(false);
-      return;
-    }
-    const { data } = await supabase.rpc("is_colleague_available", {
-      target_employee: colleagueId,
+  async function openWeekSwapPicker(shiftId: string, dateStr: string, startTime: string) {
+    setWeekSwapPickerFor(shiftId);
+    setWeekSwapTarget("");
+    setWeekSwapColleaguesLoading(true);
+    const { data } = await supabase.rpc("colleagues_available_for", {
       check_date: dateStr,
       check_start_time: startTime
     });
-    setWeekSwapTargetUnavailable(data === false);
+    const availableIds = new Set((data || []).map((r: { employee_id: string }) => r.employee_id));
+    setAvailableWeekSwapColleagues(colleagues.filter((c) => availableIds.has(c.id)));
+    setWeekSwapColleaguesLoading(false);
   }
 
   async function offerWeekSwap(shiftId: string) {
@@ -271,7 +277,6 @@ export function Home({ employee }: { employee: Employee }) {
       setSwapRequestedShiftIds((prev) => new Set(prev).add(shiftId));
       setWeekSwapPickerFor(null);
       setWeekSwapTarget("");
-      setWeekSwapTargetUnavailable(false);
     }
   }
 
@@ -405,45 +410,38 @@ export function Home({ employee }: { employee: Employee }) {
                       </p>
                     ) : weekSwapPickerFor === s.id ? (
                       <div style={{ margin: "0 0 0.5rem" }}>
-                        <div className="row-actions">
-                          <select
-                            style={{ flex: 1 }}
-                            value={weekSwapTarget}
-                            onChange={(e) => {
-                              setWeekSwapTarget(e.target.value);
-                              checkWeekSwapTarget(e.target.value, s.date, s.start_time);
-                            }}
-                          >
-                            <option value="">Kolleg:in wählen…</option>
-                            {colleagues.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
-                            disabled={!weekSwapTarget}
-                            onClick={() => offerWeekSwap(s.id)}
-                          >
-                            Anbieten
-                          </button>
+                        {weekSwapColleaguesLoading ? (
+                          <p className="hint">Prüfe Verfügbarkeit…</p>
+                        ) : availableWeekSwapColleagues.length === 0 ? (
+                          <p className="hint">Niemand hat für diesen Tag/diese Schicht "kann" angegeben.</p>
+                        ) : (
+                          <div className="row-actions">
+                            <select style={{ flex: 1 }} value={weekSwapTarget} onChange={(e) => setWeekSwapTarget(e.target.value)}>
+                              <option value="">Kolleg:in wählen…</option>
+                              {availableWeekSwapColleagues.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                              disabled={!weekSwapTarget}
+                              onClick={() => offerWeekSwap(s.id)}
+                            >
+                              Anbieten
+                            </button>
+                          </div>
+                        )}
+                        <p style={{ margin: "0.3rem 0 0" }}>
                           <button
                             className="ghost"
                             style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
-                            onClick={() => {
-                              setWeekSwapPickerFor(null);
-                              setWeekSwapTargetUnavailable(false);
-                            }}
+                            onClick={() => setWeekSwapPickerFor(null)}
                           >
                             Abbrechen
                           </button>
-                        </div>
-                        {weekSwapTargetUnavailable && (
-                          <p className="hint warn" style={{ margin: "0.3rem 0 0" }}>
-                            ⚠ Laut eigener Angabe an diesem Tag nicht verfügbar — trotzdem anbieten möglich.
-                          </p>
-                        )}
+                        </p>
                       </div>
                     ) : sickReportFor === s.id ? (
                       <div style={{ margin: "0 0 0.5rem" }}>
@@ -479,7 +477,7 @@ export function Home({ employee }: { employee: Employee }) {
                         <button
                           className="ghost"
                           style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
-                          onClick={() => setWeekSwapPickerFor(s.id)}
+                          onClick={() => openWeekSwapPicker(s.id, s.date, s.start_time)}
                         >
                           Tauschen
                         </button>

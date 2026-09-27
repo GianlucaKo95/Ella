@@ -51,7 +51,13 @@ export function Kalender({ employee }: { employee: Employee }) {
   const [colleagues, setColleagues] = useState<{ id: string; name: string }[]>([]);
   const [swapPickerFor, setSwapPickerFor] = useState<string | null>(null);
   const [swapTarget, setSwapTarget] = useState("");
-  const [swapTargetUnavailable, setSwapTargetUnavailable] = useState(false);
+  // Feedback: "Momentan werden mir beim Tauschvorschlag alle angezeigt und
+  // nicht nur die die 'Kann' für diesen Tag und Schicht angeklickt haben" —
+  // ersetzt die vorherige "alle anzeigen + nach Auswahl dezent warnen"-Logik
+  // (is_colleague_available) durch eine echte Eingrenzung der Auswahl selbst
+  // (colleagues_available_for, Migration 0033).
+  const [availableSwapColleagues, setAvailableSwapColleagues] = useState<{ id: string; name: string }[]>([]);
+  const [swapColleaguesLoading, setSwapColleaguesLoading] = useState(false);
   const [swapRequestedShifts, setSwapRequestedShifts] = useState<Set<string>>(new Set());
 
   const grid = useMemo(() => monthGrid(monthStart), [monthStart]);
@@ -77,20 +83,20 @@ export function Kalender({ employee }: { employee: Employee }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Nur ein UX-Hinweis, keine harte Sperre: prüft per serverseitiger Funktion
-  // (keine Rohdaten-Einsicht in fremde Verfügbarkeiten), ob der ausgewählte
-  // Kollege an dem Tag laut eigener Angabe "kann nicht" eingetragen hat.
-  async function checkSwapTarget(colleagueId: string, dateStr: string, startTime: string) {
-    if (!colleagueId) {
-      setSwapTargetUnavailable(false);
-      return;
-    }
-    const { data } = await supabase.rpc("is_colleague_available", {
-      target_employee: colleagueId,
+  // Grenzt die Kolleg:in-Auswahl per serverseitiger Funktion (keine
+  // Rohdaten-Einsicht in fremde Verfügbarkeiten) auf Personen ein, die für
+  // genau diesen Tag und diese Schicht explizit "kann" eingetragen haben.
+  async function openSwapPicker(shiftId: string, dateStr: string, startTime: string) {
+    setSwapPickerFor(shiftId);
+    setSwapTarget("");
+    setSwapColleaguesLoading(true);
+    const { data } = await supabase.rpc("colleagues_available_for", {
       check_date: dateStr,
       check_start_time: startTime
     });
-    setSwapTargetUnavailable(data === false);
+    const availableIds = new Set((data || []).map((r: { employee_id: string }) => r.employee_id));
+    setAvailableSwapColleagues(colleagues.filter((c) => availableIds.has(c.id)));
+    setSwapColleaguesLoading(false);
   }
 
   async function offerSwap(shiftId: string) {
@@ -102,7 +108,6 @@ export function Kalender({ employee }: { employee: Employee }) {
       setSwapRequestedShifts((prev) => new Set(prev).add(shiftId));
       setSwapPickerFor(null);
       setSwapTarget("");
-      setSwapTargetUnavailable(false);
     }
   }
 
@@ -313,49 +318,42 @@ export function Kalender({ employee }: { employee: Employee }) {
                     </p>
                   ) : swapPickerFor === s.id ? (
                     <div style={{ margin: "0 0 0.6rem" }}>
-                      <div className="row-actions">
-                        <select
-                          style={{ flex: 1 }}
-                          value={swapTarget}
-                          onChange={(e) => {
-                            setSwapTarget(e.target.value);
-                            checkSwapTarget(e.target.value, s.date, s.start_time);
-                          }}
-                        >
-                          <option value="">Kolleg:in wählen…</option>
-                          {colleagues.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
-                          disabled={!swapTarget}
-                          onClick={() => offerSwap(s.id)}
-                        >
-                          Anbieten
-                        </button>
-                        <button
-                          className="ghost"
-                          style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
-                          onClick={() => {
-                            setSwapPickerFor(null);
-                            setSwapTargetUnavailable(false);
-                          }}
-                        >
+                      {swapColleaguesLoading ? (
+                        <p className="hint">Prüfe Verfügbarkeit…</p>
+                      ) : availableSwapColleagues.length === 0 ? (
+                        <p className="hint">Niemand hat für diesen Tag/diese Schicht "kann" angegeben.</p>
+                      ) : (
+                        <div className="row-actions">
+                          <select style={{ flex: 1 }} value={swapTarget} onChange={(e) => setSwapTarget(e.target.value)}>
+                            <option value="">Kolleg:in wählen…</option>
+                            {availableSwapColleagues.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                            disabled={!swapTarget}
+                            onClick={() => offerSwap(s.id)}
+                          >
+                            Anbieten
+                          </button>
+                        </div>
+                      )}
+                      <p style={{ margin: "0.4rem 0 0" }}>
+                        <button className="ghost" style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }} onClick={() => setSwapPickerFor(null)}>
                           Abbrechen
                         </button>
-                      </div>
-                      {swapTargetUnavailable && (
-                        <p className="hint warn" style={{ margin: "0.3rem 0 0" }}>
-                          ⚠ Laut eigener Angabe an diesem Tag nicht verfügbar — trotzdem anbieten möglich.
-                        </p>
-                      )}
+                      </p>
                     </div>
                   ) : (
                     <p style={{ margin: "0 0 0.6rem" }}>
-                      <button className="ghost" style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }} onClick={() => setSwapPickerFor(s.id)}>
+                      <button
+                        className="ghost"
+                        style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                        onClick={() => openSwapPicker(s.id, s.date, s.start_time)}
+                      >
                         Tauschen
                       </button>
                     </p>
