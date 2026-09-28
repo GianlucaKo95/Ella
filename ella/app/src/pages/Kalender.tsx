@@ -85,14 +85,18 @@ export function Kalender({ employee }: { employee: Employee }) {
 
   // Grenzt die Kolleg:in-Auswahl per serverseitiger Funktion (keine
   // Rohdaten-Einsicht in fremde Verfügbarkeiten) auf Personen ein, die für
-  // genau diesen Tag und diese Schicht explizit "kann" eingetragen haben.
-  async function openSwapPicker(shiftId: string, dateStr: string, startTime: string) {
+  // genau diesen Tag und diese Schicht explizit "kann" eingetragen haben und
+  // nicht bereits selbst zeitlich überlappend eingeteilt sind (Migration
+  // 0034, Feedback: "muss nur noch abgeglichen werden, welcher Kollege/in zu
+  // der Zeit schon eingetragen ist und deshalb ja auch nicht kann").
+  async function openSwapPicker(shiftId: string, dateStr: string, startTime: string, endTime: string) {
     setSwapPickerFor(shiftId);
     setSwapTarget("");
     setSwapColleaguesLoading(true);
     const { data } = await supabase.rpc("colleagues_available_for", {
       check_date: dateStr,
-      check_start_time: startTime
+      check_start_time: startTime,
+      check_end_time: endTime
     });
     const availableIds = new Set((data || []).map((r: { employee_id: string }) => r.employee_id));
     setAvailableSwapColleagues(colleagues.filter((c) => availableIds.has(c.id)));
@@ -352,7 +356,7 @@ export function Kalender({ employee }: { employee: Employee }) {
                       <button
                         className="ghost"
                         style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
-                        onClick={() => openSwapPicker(s.id, s.date, s.start_time)}
+                        onClick={() => openSwapPicker(s.id, s.date, s.start_time, s.end_time)}
                       >
                         Tauschen
                       </button>

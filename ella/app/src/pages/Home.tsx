@@ -255,13 +255,18 @@ export function Home({ employee }: { employee: Employee }) {
     cancelled: "zurückgezogen"
   };
 
-  async function openWeekSwapPicker(shiftId: string, dateStr: string, startTime: string) {
+  // Feedback: "muss nur noch abgeglichen werden, welcher Kollege/in zu der
+  // Zeit schon eingetragen ist und deshalb ja auch nicht kann" (Migration
+  // 0034) — colleagues_available_for() schließt jetzt zusätzlich Personen
+  // aus, die an dem Tag bereits eine zeitlich überlappende Schicht haben.
+  async function openWeekSwapPicker(shiftId: string, dateStr: string, startTime: string, endTime: string) {
     setWeekSwapPickerFor(shiftId);
     setWeekSwapTarget("");
     setWeekSwapColleaguesLoading(true);
     const { data } = await supabase.rpc("colleagues_available_for", {
       check_date: dateStr,
-      check_start_time: startTime
+      check_start_time: startTime,
+      check_end_time: endTime
     });
     const availableIds = new Set((data || []).map((r: { employee_id: string }) => r.employee_id));
     setAvailableWeekSwapColleagues(colleagues.filter((c) => availableIds.has(c.id)));
@@ -477,7 +482,7 @@ export function Home({ employee }: { employee: Employee }) {
                         <button
                           className="ghost"
                           style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
-                          onClick={() => openWeekSwapPicker(s.id, s.date, s.start_time)}
+                          onClick={() => openWeekSwapPicker(s.id, s.date, s.start_time, s.end_time)}
                         >
                           Tauschen
                         </button>
