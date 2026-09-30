@@ -719,39 +719,50 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Dienstplan und Backplan werden bewusst unabhängig voneinander
   // veröffentlicht — das eine hat mit dem anderen nichts zu tun.
   async function publishShiftMonth() {
-    const { data: publishedShifts, error } = await supabase
-      .from("shifts")
-      .update({ status: "published" })
-      .in("date", svcDateStrs)
-      .eq("status", "draft")
-      .select("employee_id");
-    if (error) {
-      alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
-      return;
+    // Feedback: "Momentan ist es nicht möglich einen Backplan zu erstellen"
+    // (Veröffentlichen gab weder eine Fehlermeldung noch sonst eine
+    // Rückmeldung) — der bisherige Code fing nur den Supabase-`error` ab,
+    // ein unerwarteter Fehler danach (z. B. in notifyEmployees()) hätte die
+    // Funktion unbemerkt abbrechen lassen, noch vor dem abschließenden
+    // alert(). try/catch um die ganze Funktion macht jeden solchen Fehler
+    // jetzt sichtbar statt ihn verschwinden zu lassen.
+    try {
+      const { data: publishedShifts, error } = await supabase
+        .from("shifts")
+        .update({ status: "published" })
+        .in("date", svcDateStrs)
+        .eq("status", "draft")
+        .select("employee_id");
+      if (error) {
+        alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
+        return;
+      }
+      const notifyIds = Array.from(
+        new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
+      );
+      // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
+      // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
+      // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
+      // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
+      // Bestätigung nicht länger blockieren.
+      notifyEmployees(
+        notifyIds,
+        "shift_published",
+        `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
+        `/kalender?date=${toMonthStr(planMonth)}`
+      );
+      // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
+      // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
+      // Neuladen der Liste keine sichtbare Bestätigung.
+      alert(
+        publishedShifts.length > 0
+          ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
+          : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
+      );
+      loadAll();
+    } catch (e) {
+      alert(`Dienstplan konnte nicht veröffentlicht werden: ${e instanceof Error ? e.message : String(e)}`);
     }
-    const notifyIds = Array.from(
-      new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
-    );
-    // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
-    // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
-    // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
-    // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
-    // Bestätigung nicht länger blockieren.
-    notifyEmployees(
-      notifyIds,
-      "shift_published",
-      `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
-      `/kalender?date=${toMonthStr(planMonth)}`
-    );
-    // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
-    // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
-    // Neuladen der Liste keine sichtbare Bestätigung.
-    alert(
-      publishedShifts.length > 0
-        ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
-        : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
-    );
-    loadAll();
   }
 
   async function publishBakeWeek(force = false) {
@@ -759,37 +770,48 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       setPublishWarningAck(true);
       return;
     }
-    const { data: publishedEntries, error } = await supabase
-      .from("bake_plan_entries")
-      .update({ status: "published" })
-      .in("date", bkDateStrs)
-      .eq("status", "draft")
-      .select("id, bake_team_id");
-    if (error) {
-      alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
-      return;
+    // Feedback: "Momentan ist es nicht möglich einen Backplan zu erstellen"
+    // (Veröffentlichen gab weder eine Fehlermeldung noch sonst eine
+    // Rückmeldung) — der bisherige Code fing nur den Supabase-`error` ab,
+    // ein unerwarteter Fehler danach (z. B. in notifyEmployees()) hätte die
+    // Funktion unbemerkt abbrechen lassen, noch vor dem abschließenden
+    // alert(). try/catch um die ganze Funktion macht jeden solchen Fehler
+    // jetzt sichtbar statt ihn verschwinden zu lassen.
+    try {
+      const { data: publishedEntries, error } = await supabase
+        .from("bake_plan_entries")
+        .update({ status: "published" })
+        .in("date", bkDateStrs)
+        .eq("status", "draft")
+        .select("id, bake_team_id");
+      if (error) {
+        alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
+        return;
+      }
+      // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
+      // — bisher löste nur das Veröffentlichen des Dienstplans eine
+      // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
+      // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
+      // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
+      // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
+      // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
+      // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
+      // Datums-Parameter.
+      const publishedTeamIds = new Set(
+        (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
+      );
+      const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
+      notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
+      setPublishWarningAck(false);
+      alert(
+        publishedEntries.length > 0
+          ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
+          : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
+      );
+      loadAll();
+    } catch (e) {
+      alert(`Backplan konnte nicht veröffentlicht werden: ${e instanceof Error ? e.message : String(e)}`);
     }
-    // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
-    // — bisher löste nur das Veröffentlichen des Dienstplans eine
-    // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
-    // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
-    // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
-    // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
-    // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
-    // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
-    // Datums-Parameter.
-    const publishedTeamIds = new Set(
-      (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
-    );
-    const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
-    notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
-    setPublishWarningAck(false);
-    alert(
-      publishedEntries.length > 0
-        ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
-        : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
-    );
-    loadAll();
   }
 
   async function confirmSwap(swap: PendingSwap) {
