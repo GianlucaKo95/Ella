@@ -647,54 +647,104 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Feedback: "Ich kann als Admin eine veröffentlichte Backplanung nicht
+  // nochmal ändern" (Hinzufügen eines Kuchens an einem bereits
+  // veröffentlichten Tag gab keine Rückmeldung) — die Datenbank-Ebene
+  // erlaubt das Ändern/Hinzufügen/Löschen auch bei status='published'
+  // uneingeschränkt (bereits mit Migration 0029/0031 sichergestellt), ein
+  // unerwarteter Fehler hier wäre aber bisher unbemerkt durchgerutscht, noch
+  // vor loadAll(). Alle Mutations-Funktionen dieser Seite bekommen deshalb
+  // dieselbe try/catch-Absicherung wie publishShiftMonth()/publishBakeWeek().
   async function assignShift(id: string, employee_id: string | null) {
-    const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
-    if (error) alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
+      if (error) {
+        alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Mitarbeiter konnte nicht zugewiesen werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // Start-/Endzeit bleiben nach dem Anlegen weiterhin änderbar (Feedback:
   // "auch wenn vorverlegt zusätzlich bearbeitbar") — z. B. wenn eine
   // Frühschicht ausnahmsweise später beginnt.
   async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
-    const { error } = await supabase.from("shifts").update(patch).eq("id", id);
-    if (error) alert(`Zeit konnte nicht geändert werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").update(patch).eq("id", id);
+      if (error) {
+        alert(`Zeit konnte nicht geändert werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Zeit konnte nicht geändert werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function deleteShift(id: string) {
-    const { error } = await supabase.from("shifts").delete().eq("id", id);
-    if (error) alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").delete().eq("id", id);
+      if (error) {
+        alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Schicht konnte nicht gelöscht werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function addBakeEntry(date: string) {
     if (cakeItems.length === 0) return;
-    const dow = isoDayOfWeek(parseDateStr(date));
-    const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
-    const { error } = await supabase.from("bake_plan_entries").insert({
-      date,
-      cake_item_id: cakeItems[0].id,
-      // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
-      // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
-      quantity: 2,
-      bake_team_id: defaultTeamId,
-      status: "draft"
-    });
-    if (error) alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
-    loadAll();
+    try {
+      const dow = isoDayOfWeek(parseDateStr(date));
+      const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
+      const { error } = await supabase.from("bake_plan_entries").insert({
+        date,
+        cake_item_id: cakeItems[0].id,
+        // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
+        // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
+        quantity: 2,
+        bake_team_id: defaultTeamId,
+        status: "draft"
+      });
+      if (error) {
+        alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Kuchen konnte nicht hinzugefügt werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function updateBakeEntry(id: string, patch: Partial<BakeEntryRow>) {
-    const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
-    if (error) alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+      if (error) {
+        alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Backeintrag konnte nicht geändert werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function deleteBakeEntry(id: string) {
-    const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
-    if (error) alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
+      if (error) {
+        alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Backeintrag konnte nicht gelöscht werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // Back-Einträge ohne zugeordnete Truppe — blockieren das Veröffentlichen,
@@ -719,39 +769,50 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Dienstplan und Backplan werden bewusst unabhängig voneinander
   // veröffentlicht — das eine hat mit dem anderen nichts zu tun.
   async function publishShiftMonth() {
-    const { data: publishedShifts, error } = await supabase
-      .from("shifts")
-      .update({ status: "published" })
-      .in("date", svcDateStrs)
-      .eq("status", "draft")
-      .select("employee_id");
-    if (error) {
-      alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
-      return;
+    // Feedback: "Momentan ist es nicht möglich einen Backplan zu erstellen"
+    // (Veröffentlichen gab weder eine Fehlermeldung noch sonst eine
+    // Rückmeldung) — der bisherige Code fing nur den Supabase-`error` ab,
+    // ein unerwarteter Fehler danach (z. B. in notifyEmployees()) hätte die
+    // Funktion unbemerkt abbrechen lassen, noch vor dem abschließenden
+    // alert(). try/catch um die ganze Funktion macht jeden solchen Fehler
+    // jetzt sichtbar statt ihn verschwinden zu lassen.
+    try {
+      const { data: publishedShifts, error } = await supabase
+        .from("shifts")
+        .update({ status: "published" })
+        .in("date", svcDateStrs)
+        .eq("status", "draft")
+        .select("employee_id");
+      if (error) {
+        alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
+        return;
+      }
+      const notifyIds = Array.from(
+        new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
+      );
+      // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
+      // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
+      // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
+      // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
+      // Bestätigung nicht länger blockieren.
+      notifyEmployees(
+        notifyIds,
+        "shift_published",
+        `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
+        `/kalender?date=${toMonthStr(planMonth)}`
+      );
+      // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
+      // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
+      // Neuladen der Liste keine sichtbare Bestätigung.
+      alert(
+        publishedShifts.length > 0
+          ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
+          : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
+      );
+      loadAll();
+    } catch (e) {
+      alert(`Dienstplan konnte nicht veröffentlicht werden: ${e instanceof Error ? e.message : String(e)}`);
     }
-    const notifyIds = Array.from(
-      new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
-    );
-    // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
-    // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
-    // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
-    // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
-    // Bestätigung nicht länger blockieren.
-    notifyEmployees(
-      notifyIds,
-      "shift_published",
-      `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
-      `/kalender?date=${toMonthStr(planMonth)}`
-    );
-    // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
-    // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
-    // Neuladen der Liste keine sichtbare Bestätigung.
-    alert(
-      publishedShifts.length > 0
-        ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
-        : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
-    );
-    loadAll();
   }
 
   async function publishBakeWeek(force = false) {
@@ -759,37 +820,48 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       setPublishWarningAck(true);
       return;
     }
-    const { data: publishedEntries, error } = await supabase
-      .from("bake_plan_entries")
-      .update({ status: "published" })
-      .in("date", bkDateStrs)
-      .eq("status", "draft")
-      .select("id, bake_team_id");
-    if (error) {
-      alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
-      return;
+    // Feedback: "Momentan ist es nicht möglich einen Backplan zu erstellen"
+    // (Veröffentlichen gab weder eine Fehlermeldung noch sonst eine
+    // Rückmeldung) — der bisherige Code fing nur den Supabase-`error` ab,
+    // ein unerwarteter Fehler danach (z. B. in notifyEmployees()) hätte die
+    // Funktion unbemerkt abbrechen lassen, noch vor dem abschließenden
+    // alert(). try/catch um die ganze Funktion macht jeden solchen Fehler
+    // jetzt sichtbar statt ihn verschwinden zu lassen.
+    try {
+      const { data: publishedEntries, error } = await supabase
+        .from("bake_plan_entries")
+        .update({ status: "published" })
+        .in("date", bkDateStrs)
+        .eq("status", "draft")
+        .select("id, bake_team_id");
+      if (error) {
+        alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
+        return;
+      }
+      // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
+      // — bisher löste nur das Veröffentlichen des Dienstplans eine
+      // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
+      // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
+      // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
+      // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
+      // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
+      // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
+      // Datums-Parameter.
+      const publishedTeamIds = new Set(
+        (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
+      );
+      const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
+      notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
+      setPublishWarningAck(false);
+      alert(
+        publishedEntries.length > 0
+          ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
+          : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
+      );
+      loadAll();
+    } catch (e) {
+      alert(`Backplan konnte nicht veröffentlicht werden: ${e instanceof Error ? e.message : String(e)}`);
     }
-    // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
-    // — bisher löste nur das Veröffentlichen des Dienstplans eine
-    // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
-    // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
-    // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
-    // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
-    // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
-    // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
-    // Datums-Parameter.
-    const publishedTeamIds = new Set(
-      (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
-    );
-    const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
-    notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
-    setPublishWarningAck(false);
-    alert(
-      publishedEntries.length > 0
-        ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
-        : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
-    );
-    loadAll();
   }
 
   async function confirmSwap(swap: PendingSwap) {
