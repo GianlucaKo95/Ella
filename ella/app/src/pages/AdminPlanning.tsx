@@ -647,54 +647,104 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Feedback: "Ich kann als Admin eine veröffentlichte Backplanung nicht
+  // nochmal ändern" (Hinzufügen eines Kuchens an einem bereits
+  // veröffentlichten Tag gab keine Rückmeldung) — die Datenbank-Ebene
+  // erlaubt das Ändern/Hinzufügen/Löschen auch bei status='published'
+  // uneingeschränkt (bereits mit Migration 0029/0031 sichergestellt), ein
+  // unerwarteter Fehler hier wäre aber bisher unbemerkt durchgerutscht, noch
+  // vor loadAll(). Alle Mutations-Funktionen dieser Seite bekommen deshalb
+  // dieselbe try/catch-Absicherung wie publishShiftMonth()/publishBakeWeek().
   async function assignShift(id: string, employee_id: string | null) {
-    const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
-    if (error) alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
+      if (error) {
+        alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Mitarbeiter konnte nicht zugewiesen werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // Start-/Endzeit bleiben nach dem Anlegen weiterhin änderbar (Feedback:
   // "auch wenn vorverlegt zusätzlich bearbeitbar") — z. B. wenn eine
   // Frühschicht ausnahmsweise später beginnt.
   async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
-    const { error } = await supabase.from("shifts").update(patch).eq("id", id);
-    if (error) alert(`Zeit konnte nicht geändert werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").update(patch).eq("id", id);
+      if (error) {
+        alert(`Zeit konnte nicht geändert werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Zeit konnte nicht geändert werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function deleteShift(id: string) {
-    const { error } = await supabase.from("shifts").delete().eq("id", id);
-    if (error) alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").delete().eq("id", id);
+      if (error) {
+        alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Schicht konnte nicht gelöscht werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function addBakeEntry(date: string) {
     if (cakeItems.length === 0) return;
-    const dow = isoDayOfWeek(parseDateStr(date));
-    const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
-    const { error } = await supabase.from("bake_plan_entries").insert({
-      date,
-      cake_item_id: cakeItems[0].id,
-      // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
-      // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
-      quantity: 2,
-      bake_team_id: defaultTeamId,
-      status: "draft"
-    });
-    if (error) alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
-    loadAll();
+    try {
+      const dow = isoDayOfWeek(parseDateStr(date));
+      const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
+      const { error } = await supabase.from("bake_plan_entries").insert({
+        date,
+        cake_item_id: cakeItems[0].id,
+        // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
+        // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
+        quantity: 2,
+        bake_team_id: defaultTeamId,
+        status: "draft"
+      });
+      if (error) {
+        alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Kuchen konnte nicht hinzugefügt werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function updateBakeEntry(id: string, patch: Partial<BakeEntryRow>) {
-    const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
-    if (error) alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+      if (error) {
+        alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Backeintrag konnte nicht geändert werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function deleteBakeEntry(id: string) {
-    const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
-    if (error) alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
+      if (error) {
+        alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Backeintrag konnte nicht gelöscht werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // Back-Einträge ohne zugeordnete Truppe — blockieren das Veröffentlichen,
