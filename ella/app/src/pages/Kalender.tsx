@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { fetchAppSettings, supabase, type Employee } from "../lib/supabase";
+import { fetchAppSettings, notifyAdmins, supabase, type Employee } from "../lib/supabase";
 import { icsFeedUrl } from "../lib/ics";
 import {
   DAY_NAMES,
@@ -59,6 +59,13 @@ export function Kalender({ employee }: { employee: Employee }) {
   const [availableSwapColleagues, setAvailableSwapColleagues] = useState<{ id: string; name: string }[]>([]);
   const [swapColleaguesLoading, setSwapColleaguesLoading] = useState(false);
   const [swapRequestedShifts, setSwapRequestedShifts] = useState<Set<string>>(new Set());
+  // Feedback: "Die Schicht wird dann ja als leer angezeigt. Dort soll dann
+  // ein Button hin mit dem ich sagen kann, dass ich die Schicht übernehmen
+  // kann" — eigene offene Meldungen für unbesetzte Schichten (Migration
+  // 0035, shift_claims), damit der Button nach dem Melden durch einen
+  // Wartehinweis ersetzt wird statt erneut klickbar zu bleiben.
+  const [myPendingClaims, setMyPendingClaims] = useState<Set<string>>(new Set());
+  const [claimSubmitting, setClaimSubmitting] = useState<string | null>(null);
 
   const grid = useMemo(() => monthGrid(monthStart), [monthStart]);
 
@@ -80,8 +87,34 @@ export function Kalender({ employee }: { employee: Employee }) {
       .eq("requested_by", employee.id)
       .eq("status", "pending")
       .then(({ data }) => setSwapRequestedShifts(new Set((data || []).map((r) => r.shift_id))));
+    supabase
+      .from("shift_claims")
+      .select("shift_id")
+      .eq("employee_id", employee.id)
+      .eq("status", "pending")
+      .then(({ data }) => setMyPendingClaims(new Set((data || []).map((r) => r.shift_id))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function shiftLabel(date: string, shiftType: "frueh" | "spaet") {
+    const d = new Date(date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+    return `${d} · ${shiftType === "frueh" ? "Früh" : "Spät"}`;
+  }
+
+  async function claimShift(shift: Shift) {
+    setClaimSubmitting(shift.id);
+    const { error } = await supabase.from("shift_claims").insert({ shift_id: shift.id, employee_id: employee.id });
+    if (!error) {
+      setMyPendingClaims((prev) => new Set(prev).add(shift.id));
+      await notifyAdmins(
+        "shift_claim_submitted",
+        `${employee.name} kann die offene Schicht übernehmen (${shiftLabel(shift.date, shift.shift_type)})`
+      );
+    } else {
+      alert(`Konnte nicht gemeldet werden: ${error.message}`);
+    }
+    setClaimSubmitting(null);
+  }
 
   // Grenzt die Kolleg:in-Auswahl per serverseitiger Funktion (keine
   // Rohdaten-Einsicht in fremde Verfügbarkeiten) auf Personen ein, die für
@@ -307,7 +340,7 @@ export function Kalender({ employee }: { employee: Employee }) {
               <div className="shift-line">
                 <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
                 <span>
-                  {s.employee_id === employee.id ? "Ich" : s.employees?.name ?? "—"}
+                  {s.employee_id === employee.id ? "Ich" : s.employee_id === null ? "Offen" : s.employees?.name ?? "—"}
                   {s.role_tag ? ` · ${s.role_tag}` : ""}
                 </span>
                 <span className="who">
@@ -363,6 +396,22 @@ export function Kalender({ employee }: { employee: Employee }) {
                     </p>
                   )}
                 </>
+              )}
+              {s.employee_id === null && (
+                <p style={{ margin: "0 0 0.6rem" }}>
+                  {myPendingClaims.has(s.id) ? (
+                    <span className="hint">Du hast dich gemeldet – wartet auf Bestätigung.</span>
+                  ) : (
+                    <button
+                      className="ghost"
+                      style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                      disabled={claimSubmitting === s.id}
+                      onClick={() => claimShift(s)}
+                    >
+                      {claimSubmitting === s.id ? "Melde…" : "Ich kann übernehmen"}
+                    </button>
+                  )}
+                </p>
               )}
             </div>
           ))}

@@ -291,7 +291,15 @@ export function Home({ employee }: { employee: Employee }) {
     setSickSubmitting(true);
     const { error } = await supabase.rpc("report_shift_absence", { target_shift_id: shiftId, reason });
     if (!error) {
-      await notifyAdmins("shift_cancelled", `${employee.name} hat eine Schicht abgesagt (${shiftLabel(date, shiftType)}): ${reason}`);
+      // Feedback: "sollen alle und nicht nur die Admin Rolle eine Push
+      // Benachrichtigung bekommen. Die Schicht wird dann ja als leer
+      // angezeigt. Dort soll dann ein Button hin..." — Link springt direkt
+      // zum Tag im Kalender, wo der "Ich kann übernehmen"-Button sitzt.
+      await notifyAdmins(
+        "shift_cancelled",
+        `${employee.name} hat eine Schicht abgesagt (${shiftLabel(date, shiftType)}): ${reason}`,
+        `/kalender?date=${date}`
+      );
       setSickReportFor(null);
       setSickReason("");
       load();

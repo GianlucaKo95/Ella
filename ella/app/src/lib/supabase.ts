@@ -230,7 +230,8 @@ export type AppNotification = {
     | "swap_accepted"
     | "availability_submitted"
     | "reminder"
-    | "shift_cancelled";
+    | "shift_cancelled"
+    | "shift_claim_submitted";
   body: string;
   sent_at: string;
   read_at: string | null;
@@ -287,19 +288,28 @@ export async function notifyEmployees(
   return result.ok ? null : result.error || "Benachrichtigung konnte nicht gesendet werden";
 }
 
-// Von einer normalen Mitarbeiter-Session aus alle Admins benachrichtigen
-// (Schichttausch wartet auf Bestätigung, Verfügbarkeit eingereicht, Schicht
-// krankheitsbedingt abgesagt) — welche Mitarbeiter das sind, bestimmt
-// ausschließlich die Edge Function serverseitig, damit niemand über diesen
-// Weg beliebige andere Mitarbeiter benachrichtigen kann.
+// Von einer normalen Mitarbeiter-Session aus eine serverseitig geroutete
+// Benachrichtigung auslösen (Schichttausch wartet auf Bestätigung,
+// Verfügbarkeit eingereicht, Schicht krankheitsbedingt abgesagt, Übernahme
+// einer offenen Schicht angeboten) — wer die Empfänger sind, bestimmt
+// ausschließlich die Edge Function serverseitig (meist alle aktiven Admins,
+// bei "shift_cancelled" bewusst alle aktiven Mitarbeiter, s. send-push/
+// index.ts), damit niemand über diesen Weg beliebige andere Mitarbeiter
+// benachrichtigen kann. Der Name ist historisch — trotz "Admins" ist
+// "shift_cancelled" seit Feedback "sollen alle und nicht nur die Admin
+// Rolle eine Push Benachrichtigung bekommen" eine Ausnahme davon.
 export async function notifyAdmins(
-  type: Extract<AppNotification["type"], "swap_accepted" | "availability_submitted" | "shift_cancelled">,
-  body: string
+  type: Extract<
+    AppNotification["type"],
+    "swap_accepted" | "availability_submitted" | "shift_cancelled" | "shift_claim_submitted"
+  >,
+  body: string,
+  link?: string
 ): Promise<string | null> {
   const {
     data: { session }
   } = await supabase.auth.getSession();
   if (!session) return "Nicht angemeldet";
-  const result = await callEdgeFunction("send-push", { type, body }, session.access_token);
+  const result = await callEdgeFunction("send-push", { type, body, link }, session.access_token);
   return result.ok ? null : result.error || "Benachrichtigung konnte nicht gesendet werden";
 }

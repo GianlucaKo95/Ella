@@ -99,6 +99,16 @@ type PendingSwap = {
   offered_to_employee: { name: string } | null;
   shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
 };
+// Feedback: "Dort soll dann ein Button hin mit dem ich sagen kann, dass ich
+// die Schicht übernehmen kann" — Freiwillige für eine offene (durch
+// Krankmeldung freigewordene) Schicht, Migration 0035 (shift_claims).
+type PendingClaim = {
+  id: string;
+  shift_id: string;
+  employee_id: string;
+  claimant: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
+};
 // Schlankere Neuauflage des in Migration 0031 entfernten Änderungsprotokolls
 // (Feedback: "Das Änderungsprotokoll wird auch nur für Schichten gebraucht
 // die getauscht werden nicht für Schichten die vom Admin geändert wurden")
@@ -202,6 +212,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [newCakeIngredients, setNewCakeIngredients] = useState("");
   const [newCakeRecipe, setNewCakeRecipe] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
+  const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([]);
   const [swapLog, setSwapLog] = useState<SwapLogEntry[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const push = usePushToggle(employee.id);
@@ -287,6 +298,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       deadlineRes,
       submissionsRes,
       swapsRes,
+      claimsRes,
       swapLogRes,
       specialRes
     ] = await Promise.all([
@@ -309,6 +321,10 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
         )
         .eq("status", "accepted"),
       supabase
+        .from("shift_claims")
+        .select("id,shift_id,employee_id,shifts(date,shift_type),claimant:employee_id(name)")
+        .eq("status", "pending"),
+      supabase
         .from("shift_swap_log")
         .select("id,date,change_summary,changed_at")
         .gte("date", toDateStr(planMonth))
@@ -330,6 +346,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
+    setPendingClaims((claimsRes.data as unknown as PendingClaim[]) || []);
     setSwapLog((swapLogRes.data as SwapLogEntry[]) || []);
     setSpecialDays((specialRes.data as SpecialDay[]) || []);
   }
@@ -889,6 +906,34 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Feedback: "Dort soll dann ein Button hin mit dem ich sagen kann, dass
+  // ich die Schicht übernehmen kann" — bestätigt wie bei confirmSwap() erst
+  // der Admin die tatsächliche Zuweisung. Mehrere Kolleg:innen können sich
+  // für dieselbe offene Schicht melden; bei Bestätigung werden die übrigen
+  // offenen Meldungen für diese Schicht automatisch zurückgezogen, damit sie
+  // nicht als "wartet auf Bestätigung" hängen bleiben.
+  async function confirmClaim(claim: PendingClaim) {
+    await supabase.from("shifts").update({ employee_id: claim.employee_id }).eq("id", claim.shift_id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "confirmed", responded_at: new Date().toISOString() })
+      .eq("id", claim.id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "cancelled", responded_at: new Date().toISOString() })
+      .eq("shift_id", claim.shift_id)
+      .eq("status", "pending");
+    loadAll();
+  }
+
+  async function declineClaim(claimId: string) {
+    await supabase
+      .from("shift_claims")
+      .update({ status: "declined", responded_at: new Date().toISOString() })
+      .eq("id", claimId);
+    loadAll();
+  }
+
   return (
     <div>
       <h2>Planung (Admin)</h2>
@@ -969,6 +1014,35 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                       className="ghost"
                       style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
                       onClick={() => declineSwap(s.id)}
+                    >
+                      Ablehnen
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pendingClaims.length > 0 && (
+            <div className="card">
+              <h3>Offene Schichten – Freiwillige</h3>
+              {pendingClaims.map((c) => (
+                <div className="shift-line" key={c.id}>
+                  <span className="tag">
+                    {c.shifts ? new Date(c.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+                  </span>
+                  <span>
+                    {c.claimant?.name ?? "?"} kann übernehmen
+                    {c.shifts ? ` (${c.shifts.shift_type === "frueh" ? "Früh" : "Spät"})` : ""}
+                  </span>
+                  <span className="row-actions">
+                    <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmClaim(c)}>
+                      Bestätigen
+                    </button>
+                    <button
+                      className="ghost"
+                      style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                      onClick={() => declineClaim(c.id)}
                     >
                       Ablehnen
                     </button>
