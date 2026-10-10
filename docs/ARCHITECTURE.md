@@ -587,3 +587,16 @@ dann ein Button hin mit dem ich sagen kann, dass ich die Schicht übernehmen kan
   dieselbe "Offen" + Button/Wartehinweis-Logik wie im Kalender, zusätzlich in der "Heute im
   Dienst"-Liste auf Home.tsx (zeigt wie der Kalender auch unbesetzte veröffentlichte Schichten),
   mit eigenem `myPendingClaims`-Vorlader für die heutigen Schichten statt für den ganzen Monat.
+- **Nachtrag: Admin-Kacheln für offene Vorgänge auch auf Home** (Feedback: "Können wir das, sollten
+  Einträge dort vorhanden sein, und genau so mit Tauschanfrage als Kachel im Home Screen
+  implementieren for Admins?"): die beiden Admin-Planung-Karten "Schichttausch-Bestätigungen" und
+  "Offene Schichten – Freiwillige" (Bestätigen/Ablehnen) erscheinen jetzt — nur bei vorhandenen
+  Einträgen, analog zur bestehenden "Schichttausch"-Karte für Mitarbeiter — zusätzlich direkt auf
+  Home.tsx, damit der Admin offene Vorgänge nicht erst in der Planung bemerkt. Die zugrundeliegenden
+  Abfragen (`shift_swap_requests` mit `status='accepted'`, `shift_claims` mit `status='pending'`,
+  ohne Einschränkung auf die eigene Person) laufen bewusst nur für `employee.role === "admin"` —
+  für andere Rollen würde die RLS-Policy "eigene oder Admin" sonst nur die eigenen Zeilen liefern,
+  was hier fachlich falsch wäre (die Karte braucht alle offenen Vorgänge, nicht nur eigene).
+  `confirmSwap()`/`declineSwap()`/`confirmClaim()`/`declineClaim()` sind 1:1 aus AdminPlanning.tsx
+  übernommen (inkl. Schichttausch-Protokoll-Eintrag bei Bestätigung), rufen nur `load()` statt
+  `loadAll()` auf.

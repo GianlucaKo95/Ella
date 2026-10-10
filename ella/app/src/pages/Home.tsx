@@ -38,6 +38,27 @@ type SwapRow = {
   requested_by_employee: { name: string } | null;
   offered_to_employee: { name: string } | null;
 };
+// Feedback: "Können wir das, sollten Einträge dort vorhanden sein, und
+// genau so mit Tauschanfrage als Kachel im Home Screen implementieren for
+// Admins?" — dieselben zwei Admin-Planung-Karten ("Schichttausch-
+// Bestätigungen", "Offene Schichten – Freiwillige") zusätzlich direkt auf
+// Home, damit der Admin nicht extra in die Planung wechseln muss, um offene
+// Vorgänge zu bemerken. Gleiche Typen/Logik wie in AdminPlanning.tsx.
+type AdminPendingSwap = {
+  id: string;
+  shift_id: string;
+  offered_to: string;
+  requested_by_employee: { name: string } | null;
+  offered_to_employee: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
+};
+type AdminPendingClaim = {
+  id: string;
+  shift_id: string;
+  employee_id: string;
+  claimant: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
+};
 
 export function Home({ employee }: { employee: Employee }) {
   const navigate = useNavigate();
@@ -74,6 +95,8 @@ export function Home({ employee }: { employee: Employee }) {
   // "Heute im Dienst"-Liste statt den vollen Kalender.
   const [myPendingClaims, setMyPendingClaims] = useState<Set<string>>(new Set());
   const [claimSubmitting, setClaimSubmitting] = useState<string | null>(null);
+  const [adminPendingSwaps, setAdminPendingSwaps] = useState<AdminPendingSwap[]>([]);
+  const [adminPendingClaims, setAdminPendingClaims] = useState<AdminPendingClaim[]>([]);
 
   const today = toDateStr(new Date());
   const weekDays = Array.from({ length: 7 }, (_, i) => toDateStr(addDays(new Date(), i)));
@@ -101,6 +124,27 @@ export function Home({ employee }: { employee: Employee }) {
       .select("shift_id")
       .eq("employee_id", employee.id)
       .eq("status", "pending");
+
+    // Admin-only: nur für Admins abgefragt, da RLS anderen Rollen ohnehin nur
+    // eigene Zeilen zeigen würde ("eigene oder Admin") — für eine
+    // Mitarbeiter-Session wäre das Ergebnis hier also irreführend (z. B. nur
+    // die eigene gerade bestätigte Tauschanfrage statt aller).
+    const adminPendingSwapsPromise =
+      employee.role === "admin"
+        ? supabase
+            .from("shift_swap_requests")
+            .select(
+              "id,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
+            )
+            .eq("status", "accepted")
+        : Promise.resolve({ data: [] as unknown } as { data: unknown[] });
+    const adminPendingClaimsPromise =
+      employee.role === "admin"
+        ? supabase
+            .from("shift_claims")
+            .select("id,shift_id,employee_id,shifts(date,shift_type),claimant:employee_id(name)")
+            .eq("status", "pending")
+        : Promise.resolve({ data: [] as unknown } as { data: unknown[] });
 
     const todayShiftsPromise = supabase
       .from("shifts")
@@ -171,7 +215,9 @@ export function Home({ employee }: { employee: Employee }) {
       outgoingSwapsRes,
       colleaguesRes,
       pendingSwapShiftIdsRes,
-      myPendingClaimsRes
+      myPendingClaimsRes,
+      adminPendingSwapsRes,
+      adminPendingClaimsRes
     ] = await Promise.all([
       shiftsPromise,
       todayShiftsPromise,
@@ -182,7 +228,9 @@ export function Home({ employee }: { employee: Employee }) {
       outgoingSwapsPromise,
       colleaguesPromise,
       pendingSwapShiftIdsPromise,
-      myPendingClaimsPromise
+      myPendingClaimsPromise,
+      adminPendingSwapsPromise,
+      adminPendingClaimsPromise
     ]);
 
     setShifts((shiftsRes.data as ShiftRow[]) || []);
@@ -212,6 +260,8 @@ export function Home({ employee }: { employee: Employee }) {
     setColleagues(colleaguesRes.data || []);
     setSwapRequestedShiftIds(new Set((pendingSwapShiftIdsRes.data || []).map((r) => r.shift_id)));
     setMyPendingClaims(new Set((myPendingClaimsRes.data || []).map((r) => r.shift_id)));
+    setAdminPendingSwaps((adminPendingSwapsRes.data as unknown as AdminPendingSwap[]) || []);
+    setAdminPendingClaims((adminPendingClaimsRes.data as unknown as AdminPendingClaim[]) || []);
   }
 
   useEffect(() => {
@@ -345,6 +395,53 @@ export function Home({ employee }: { employee: Employee }) {
     setClaimSubmitting(null);
   }
 
+  // Admin-only: gleiche Logik wie confirmSwap()/declineSwap() in
+  // AdminPlanning.tsx, hier für die Kachel auf Home. Nur diese Stelle und
+  // die in AdminPlanning.tsx schreiben ins Schichttausch-Protokoll.
+  async function confirmSwap(swap: AdminPendingSwap) {
+    await supabase.from("shifts").update({ employee_id: swap.offered_to }).eq("id", swap.shift_id);
+    await supabase.from("shift_swap_requests").update({ status: "confirmed" }).eq("id", swap.id);
+    if (swap.shifts) {
+      await supabase.from("shift_swap_log").insert({
+        shift_id: swap.shift_id,
+        date: swap.shifts.date,
+        change_summary: `${swap.requested_by_employee?.name ?? "?"} → ${swap.offered_to_employee?.name ?? "?"} (${
+          swap.shifts.shift_type === "frueh" ? "Früh" : "Spät"
+        })`
+      });
+    }
+    load();
+  }
+
+  async function declineSwap(swapId: string) {
+    await supabase.from("shift_swap_requests").update({ status: "declined" }).eq("id", swapId);
+    load();
+  }
+
+  // Admin-only: gleiche Logik wie confirmClaim()/declineClaim() in
+  // AdminPlanning.tsx.
+  async function confirmClaim(claim: AdminPendingClaim) {
+    await supabase.from("shifts").update({ employee_id: claim.employee_id }).eq("id", claim.shift_id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "confirmed", responded_at: new Date().toISOString() })
+      .eq("id", claim.id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "cancelled", responded_at: new Date().toISOString() })
+      .eq("shift_id", claim.shift_id)
+      .eq("status", "pending");
+    load();
+  }
+
+  async function declineClaim(claimId: string) {
+    await supabase
+      .from("shift_claims")
+      .update({ status: "declined", responded_at: new Date().toISOString() })
+      .eq("id", claimId);
+    load();
+  }
+
   return (
     <div>
       <h2>Hallo {employee.name.split(" ")[0]} 👋</h2>
@@ -374,6 +471,63 @@ export function Home({ employee }: { employee: Employee }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {adminPendingSwaps.length > 0 && (
+        <div className="card">
+          <h3>Schichttausch-Bestätigungen</h3>
+          {adminPendingSwaps.map((s) => (
+            <div className="shift-line" key={s.id}>
+              <span className="tag">
+                {s.shifts ? new Date(s.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+              </span>
+              <span>
+                {s.requested_by_employee?.name} → {s.offered_to_employee?.name}
+              </span>
+              <span className="row-actions">
+                <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmSwap(s)}>
+                  Bestätigen
+                </button>
+                <button
+                  className="ghost"
+                  style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                  onClick={() => declineSwap(s.id)}
+                >
+                  Ablehnen
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adminPendingClaims.length > 0 && (
+        <div className="card">
+          <h3>Offene Schichten – Freiwillige</h3>
+          {adminPendingClaims.map((c) => (
+            <div className="shift-line" key={c.id}>
+              <span className="tag">
+                {c.shifts ? new Date(c.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+              </span>
+              <span>
+                {c.claimant?.name ?? "?"} kann übernehmen
+                {c.shifts ? ` (${c.shifts.shift_type === "frueh" ? "Früh" : "Spät"})` : ""}
+              </span>
+              <span className="row-actions">
+                <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmClaim(c)}>
+                  Bestätigen
+                </button>
+                <button
+                  className="ghost"
+                  style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                  onClick={() => declineClaim(c.id)}
+                >
+                  Ablehnen
+                </button>
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
