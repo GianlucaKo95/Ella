@@ -542,9 +542,43 @@ Eintrag und setzt `shifts.employee_id = null` — die Schicht bleibt `published`
 sofort überall als unbesetzt auf und ist für den Admin ganz normal (wieder-)zuweisbar, ohne dass
 eine offene Update-Policy auf die ganze `shifts`-Tabelle nötig wäre.
 
-Neuer Benachrichtigungstyp `shift_cancelled` (`EMPLOYEE_TRIGGERED_TYPES` in `send-push`, wie
-`swap_accepted`/`availability_submitted`): jede angemeldete Person darf ihn auslösen, Ziel sind
-serverseitig immer alle aktiven Admins. UI in Home.tsx ("Meine Woche"): pro eigener Schicht neben
+Neuer Benachrichtigungstyp `shift_cancelled` (`EMPLOYEE_TRIGGERED_ALL_TYPES` in `send-push`, s. u.):
+jede angemeldete Person darf ihn auslösen. UI in Home.tsx ("Meine Woche"): pro eigener Schicht neben
 "Tauschen" ein zweiter Button "Absagen (krank o. ä.)", öffnet ein Pflicht-Freitextfeld
 (Bestätigen-Button bleibt disabled, solange die Begründung leer ist); nach Bestätigung `rpc("report_shift_absence", …)`
 gefolgt von `notifyAdmins("shift_cancelled", …)`.
+
+**Nachtrag: Benachrichtigung an alle statt nur Admins + Übernahme-Angebot** (Feedback: "Wenn ein/e
+Kollege/in die Schicht absagt aus Krankheit oder ähnlichem sollen alle und nicht nur die Admin
+Rolle eine Push Benachrichtigung bekommen. Die Schicht wird dann ja als leer angezeigt. Dort soll
+dann ein Button hin mit dem ich sagen kann, dass ich die Schicht übernehmen kann"):
+
+- **Benachrichtigungs-Routing in `send-push`** umgebaut: `EMPLOYEE_TRIGGERED_TYPES` (eine Person
+  darf auslösen, Ziel immer alle aktiven Admins) ist jetzt in zwei Mengen aufgeteilt —
+  `EMPLOYEE_TRIGGERED_ADMIN_TYPES` (`swap_accepted`, `availability_submitted`,
+  `shift_claim_submitted`, unverändertes Admin-Ziel) und `EMPLOYEE_TRIGGERED_ALL_TYPES`
+  (nur `shift_cancelled`, Ziel jetzt serverseitig ALLE aktiven Mitarbeiter außer der auslösenden
+  Person selbst). `notifyAdmins()` (lib/supabase.ts) heißt trotz dieser Ausnahme weiterhin so —
+  der Name ist historisch, welche Empfänger tatsächlich gemeint sind, bestimmt ausschließlich die
+  Edge Function anhand des `type`.
+- **`shift_claims`** (Migration `0035_shift_claims.sql`, gleiches Bestätigungs-Prinzip wie
+  `shift_swap_requests`/§9 Schichttausch): neue Tabelle `shift_id, employee_id, status
+  ('pending'|'confirmed'|'declined'|'cancelled')`. Ein Trigger (`check_shift_claim_target_empty`,
+  `BEFORE INSERT`) lässt eine Meldung nur zu, wenn die Ziel-Schicht tatsächlich gerade
+  `employee_id is null` ist — verhindert, dass eine veraltete UI eine längst wieder besetzte
+  Schicht "kapert". RLS wie bei `shift_swap_requests`: `select`/`update` "eigene oder Admin",
+  `insert` nur für sich selbst (`employee_id = current_employee_id()`), keine
+  SECURITY-DEFINER-Funktion nötig, da anders als bei `report_shift_absence()` kein Zugriff auf
+  fremde `shifts`-Zeilen erforderlich ist.
+- **UI**: Kalender.tsx zeigt eine unbesetzte Schicht (`employee_id is null`) jetzt als "Offen"
+  statt "—" und darunter — falls noch keine eigene offene Meldung existiert — den Button "Ich kann
+  übernehmen" (sonst "Du hast dich gemeldet – wartet auf Bestätigung."), analog zum bestehenden
+  "Tauschen"-Button bei eigenen Schichten. Eigene offene Meldungen werden beim Laden der Seite aus
+  `shift_claims` vorgeladen. Admin-Planung (AdminPlanning.tsx) bekommt eine neue Karte "Offene
+  Schichten – Freiwillige" (gleiche Struktur wie "Schichttausch-Bestätigungen") mit
+  Bestätigen/Ablehnen; `confirmClaim()` setzt `shifts.employee_id`, markiert die bestätigte Meldung
+  und zieht alle anderen noch offenen Meldungen für dieselbe Schicht automatisch zurück
+  (`status = 'cancelled'`), falls sich mehrere Kolleg:innen gemeldet hatten.
+- Die Push-Benachrichtigung bei `shift_cancelled` bekommt jetzt zusätzlich einen `link`
+  (`/kalender?date=…`), damit ein Antippen direkt zum Tag mit dem "Ich kann übernehmen"-Button
+  springt — vorher hatte `notifyAdmins()` keinen `link`-Parameter.

@@ -99,6 +99,16 @@ type PendingSwap = {
   offered_to_employee: { name: string } | null;
   shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
 };
+// Feedback: "Dort soll dann ein Button hin mit dem ich sagen kann, dass ich
+// die Schicht übernehmen kann" — Freiwillige für eine offene (durch
+// Krankmeldung freigewordene) Schicht, Migration 0035 (shift_claims).
+type PendingClaim = {
+  id: string;
+  shift_id: string;
+  employee_id: string;
+  claimant: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
+};
 // Schlankere Neuauflage des in Migration 0031 entfernten Änderungsprotokolls
 // (Feedback: "Das Änderungsprotokoll wird auch nur für Schichten gebraucht
 // die getauscht werden nicht für Schichten die vom Admin geändert wurden")
@@ -202,6 +212,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   const [newCakeIngredients, setNewCakeIngredients] = useState("");
   const [newCakeRecipe, setNewCakeRecipe] = useState("");
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
+  const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([]);
   const [swapLog, setSwapLog] = useState<SwapLogEntry[]>([]);
   const [publishWarningAck, setPublishWarningAck] = useState(false);
   const push = usePushToggle(employee.id);
@@ -287,6 +298,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       deadlineRes,
       submissionsRes,
       swapsRes,
+      claimsRes,
       swapLogRes,
       specialRes
     ] = await Promise.all([
@@ -309,6 +321,10 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
         )
         .eq("status", "accepted"),
       supabase
+        .from("shift_claims")
+        .select("id,shift_id,employee_id,shifts(date,shift_type),claimant:employee_id(name)")
+        .eq("status", "pending"),
+      supabase
         .from("shift_swap_log")
         .select("id,date,change_summary,changed_at")
         .gte("date", toDateStr(planMonth))
@@ -330,6 +346,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     setDeadline(deadlineRes.data?.deadline ?? "");
     setSubmissions(submissionsRes.data || []);
     setPendingSwaps((swapsRes.data as unknown as PendingSwap[]) || []);
+    setPendingClaims((claimsRes.data as unknown as PendingClaim[]) || []);
     setSwapLog((swapLogRes.data as SwapLogEntry[]) || []);
     setSpecialDays((specialRes.data as SpecialDay[]) || []);
   }
@@ -647,54 +664,104 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
     loadAll();
   }
 
+  // Feedback: "Ich kann als Admin eine veröffentlichte Backplanung nicht
+  // nochmal ändern" (Hinzufügen eines Kuchens an einem bereits
+  // veröffentlichten Tag gab keine Rückmeldung) — die Datenbank-Ebene
+  // erlaubt das Ändern/Hinzufügen/Löschen auch bei status='published'
+  // uneingeschränkt (bereits mit Migration 0029/0031 sichergestellt), ein
+  // unerwarteter Fehler hier wäre aber bisher unbemerkt durchgerutscht, noch
+  // vor loadAll(). Alle Mutations-Funktionen dieser Seite bekommen deshalb
+  // dieselbe try/catch-Absicherung wie publishShiftMonth()/publishBakeWeek().
   async function assignShift(id: string, employee_id: string | null) {
-    const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
-    if (error) alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").update({ employee_id }).eq("id", id);
+      if (error) {
+        alert(`Mitarbeiter konnte nicht zugewiesen werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Mitarbeiter konnte nicht zugewiesen werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // Start-/Endzeit bleiben nach dem Anlegen weiterhin änderbar (Feedback:
   // "auch wenn vorverlegt zusätzlich bearbeitbar") — z. B. wenn eine
   // Frühschicht ausnahmsweise später beginnt.
   async function updateShiftTime(id: string, patch: Partial<Pick<ShiftRow, "start_time" | "end_time">>) {
-    const { error } = await supabase.from("shifts").update(patch).eq("id", id);
-    if (error) alert(`Zeit konnte nicht geändert werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").update(patch).eq("id", id);
+      if (error) {
+        alert(`Zeit konnte nicht geändert werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Zeit konnte nicht geändert werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function deleteShift(id: string) {
-    const { error } = await supabase.from("shifts").delete().eq("id", id);
-    if (error) alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("shifts").delete().eq("id", id);
+      if (error) {
+        alert(`Schicht konnte nicht gelöscht werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Schicht konnte nicht gelöscht werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function addBakeEntry(date: string) {
     if (cakeItems.length === 0) return;
-    const dow = isoDayOfWeek(parseDateStr(date));
-    const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
-    const { error } = await supabase.from("bake_plan_entries").insert({
-      date,
-      cake_item_id: cakeItems[0].id,
-      // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
-      // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
-      quantity: 2,
-      bake_team_id: defaultTeamId,
-      status: "draft"
-    });
-    if (error) alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
-    loadAll();
+    try {
+      const dow = isoDayOfWeek(parseDateStr(date));
+      const defaultTeamId = bakeTeamDays.find((t) => t.day_of_week === dow)?.bake_team_id ?? null;
+      const { error } = await supabase.from("bake_plan_entries").insert({
+        date,
+        cake_item_id: cakeItems[0].id,
+        // Default 2 statt 1 — in der Praxis wird fast nie nur ein einzelnes
+        // Stück/Blech gebacken (Feedback: "sollte immer direkt bei Menge 2 stehen").
+        quantity: 2,
+        bake_team_id: defaultTeamId,
+        status: "draft"
+      });
+      if (error) {
+        alert(`Kuchen konnte nicht hinzugefügt werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Kuchen konnte nicht hinzugefügt werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function updateBakeEntry(id: string, patch: Partial<BakeEntryRow>) {
-    const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
-    if (error) alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("bake_plan_entries").update(patch).eq("id", id);
+      if (error) {
+        alert(`Backeintrag konnte nicht geändert werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Backeintrag konnte nicht geändert werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function deleteBakeEntry(id: string) {
-    const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
-    if (error) alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
-    loadAll();
+    try {
+      const { error } = await supabase.from("bake_plan_entries").delete().eq("id", id);
+      if (error) {
+        alert(`Backeintrag konnte nicht gelöscht werden: ${error.message}`);
+        return;
+      }
+      loadAll();
+    } catch (e) {
+      alert(`Backeintrag konnte nicht gelöscht werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // Back-Einträge ohne zugeordnete Truppe — blockieren das Veröffentlichen,
@@ -719,39 +786,50 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
   // Dienstplan und Backplan werden bewusst unabhängig voneinander
   // veröffentlicht — das eine hat mit dem anderen nichts zu tun.
   async function publishShiftMonth() {
-    const { data: publishedShifts, error } = await supabase
-      .from("shifts")
-      .update({ status: "published" })
-      .in("date", svcDateStrs)
-      .eq("status", "draft")
-      .select("employee_id");
-    if (error) {
-      alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
-      return;
+    // Feedback: "Momentan ist es nicht möglich einen Backplan zu erstellen"
+    // (Veröffentlichen gab weder eine Fehlermeldung noch sonst eine
+    // Rückmeldung) — der bisherige Code fing nur den Supabase-`error` ab,
+    // ein unerwarteter Fehler danach (z. B. in notifyEmployees()) hätte die
+    // Funktion unbemerkt abbrechen lassen, noch vor dem abschließenden
+    // alert(). try/catch um die ganze Funktion macht jeden solchen Fehler
+    // jetzt sichtbar statt ihn verschwinden zu lassen.
+    try {
+      const { data: publishedShifts, error } = await supabase
+        .from("shifts")
+        .update({ status: "published" })
+        .in("date", svcDateStrs)
+        .eq("status", "draft")
+        .select("employee_id");
+      if (error) {
+        alert(`Dienstplan konnte nicht veröffentlicht werden: ${error.message}`);
+        return;
+      }
+      const notifyIds = Array.from(
+        new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
+      );
+      // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
+      // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
+      // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
+      // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
+      // Bestätigung nicht länger blockieren.
+      notifyEmployees(
+        notifyIds,
+        "shift_published",
+        `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
+        `/kalender?date=${toMonthStr(planMonth)}`
+      );
+      // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
+      // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
+      // Neuladen der Liste keine sichtbare Bestätigung.
+      alert(
+        publishedShifts.length > 0
+          ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
+          : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
+      );
+      loadAll();
+    } catch (e) {
+      alert(`Dienstplan konnte nicht veröffentlicht werden: ${e instanceof Error ? e.message : String(e)}`);
     }
-    const notifyIds = Array.from(
-      new Set((publishedShifts || []).map((s) => s.employee_id).filter((id): id is string => !!id))
-    );
-    // Absichtlich nicht mehr abgewartet (Feedback: "Das Veröffentlichen des
-    // Plans dauert bis zu 20 Sekunden bis die Meldung kommt") — die Schichten
-    // sind an dieser Stelle bereits veröffentlicht, der eigentliche Versand
-    // (Edge Function `send-push`, verschickt Web-Push an jedes Gerät) darf die
-    // Bestätigung nicht länger blockieren.
-    notifyEmployees(
-      notifyIds,
-      "shift_published",
-      `Dienstplan für ${monthLabel(planMonth)} veröffentlicht`,
-      `/kalender?date=${toMonthStr(planMonth)}`
-    );
-    // Feedback: "Auch das ist still. Ein Pop-Up wäre schon oder einfach eine
-    // Meldung das der Plan veröffentlicht wurde." — bislang gab es außer dem
-    // Neuladen der Liste keine sichtbare Bestätigung.
-    alert(
-      publishedShifts.length > 0
-        ? `Dienstplan für ${monthLabel(planMonth)} veröffentlicht (${publishedShifts.length} Schicht${publishedShifts.length === 1 ? "" : "en"}).`
-        : `Keine offenen Entwürfe für ${monthLabel(planMonth)} zu veröffentlichen.`
-    );
-    loadAll();
   }
 
   async function publishBakeWeek(force = false) {
@@ -759,37 +837,48 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
       setPublishWarningAck(true);
       return;
     }
-    const { data: publishedEntries, error } = await supabase
-      .from("bake_plan_entries")
-      .update({ status: "published" })
-      .in("date", bkDateStrs)
-      .eq("status", "draft")
-      .select("id, bake_team_id");
-    if (error) {
-      alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
-      return;
+    // Feedback: "Momentan ist es nicht möglich einen Backplan zu erstellen"
+    // (Veröffentlichen gab weder eine Fehlermeldung noch sonst eine
+    // Rückmeldung) — der bisherige Code fing nur den Supabase-`error` ab,
+    // ein unerwarteter Fehler danach (z. B. in notifyEmployees()) hätte die
+    // Funktion unbemerkt abbrechen lassen, noch vor dem abschließenden
+    // alert(). try/catch um die ganze Funktion macht jeden solchen Fehler
+    // jetzt sichtbar statt ihn verschwinden zu lassen.
+    try {
+      const { data: publishedEntries, error } = await supabase
+        .from("bake_plan_entries")
+        .update({ status: "published" })
+        .in("date", bkDateStrs)
+        .eq("status", "draft")
+        .select("id, bake_team_id");
+      if (error) {
+        alert(`Backplan konnte nicht veröffentlicht werden: ${error.message}`);
+        return;
+      }
+      // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
+      // — bisher löste nur das Veröffentlichen des Dienstplans eine
+      // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
+      // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
+      // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
+      // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
+      // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
+      // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
+      // Datums-Parameter.
+      const publishedTeamIds = new Set(
+        (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
+      );
+      const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
+      notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
+      setPublishWarningAck(false);
+      alert(
+        publishedEntries.length > 0
+          ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
+          : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
+      );
+      loadAll();
+    } catch (e) {
+      alert(`Backplan konnte nicht veröffentlicht werden: ${e instanceof Error ? e.message : String(e)}`);
     }
-    // Feedback: "Die Backplanung Benachrichtigung muss noch ergänzt werden"
-    // — bisher löste nur das Veröffentlichen des Dienstplans eine
-    // Benachrichtigung aus. Zuweisung läuft bei Backeinträgen über die ganze
-    // Truppe (bake_team_id), nicht pro Person — Ziel sind deshalb alle
-    // Mitglieder jeder betroffenen Truppe. Ein Backeintrag ohne Truppe
-    // (bake_team_id null) betrifft niemanden. Backen.tsx hat (anders als der
-    // Kalender) keine eigene Wochen-/Monatsnavigation, zeigt immer alle
-    // veröffentlichten Termine ab heute — der Link braucht deshalb keinen
-    // Datums-Parameter.
-    const publishedTeamIds = new Set(
-      (publishedEntries || []).map((e) => e.bake_team_id).filter((id): id is string => !!id)
-    );
-    const notifyIds = employees.filter((e) => e.bake_team_id && publishedTeamIds.has(e.bake_team_id)).map((e) => e.id);
-    notifyEmployees(notifyIds, "bake_plan_published", `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht`, "/backen");
-    setPublishWarningAck(false);
-    alert(
-      publishedEntries.length > 0
-        ? `Backplan für Woche ${weekLabel(planWeek)} veröffentlicht (${publishedEntries.length} Eintrag${publishedEntries.length === 1 ? "" : "e"}).`
-        : `Keine offenen Entwürfe für Woche ${weekLabel(planWeek)} zu veröffentlichen.`
-    );
-    loadAll();
   }
 
   async function confirmSwap(swap: PendingSwap) {
@@ -814,6 +903,34 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
 
   async function declineSwap(swapId: string) {
     await supabase.from("shift_swap_requests").update({ status: "declined" }).eq("id", swapId);
+    loadAll();
+  }
+
+  // Feedback: "Dort soll dann ein Button hin mit dem ich sagen kann, dass
+  // ich die Schicht übernehmen kann" — bestätigt wie bei confirmSwap() erst
+  // der Admin die tatsächliche Zuweisung. Mehrere Kolleg:innen können sich
+  // für dieselbe offene Schicht melden; bei Bestätigung werden die übrigen
+  // offenen Meldungen für diese Schicht automatisch zurückgezogen, damit sie
+  // nicht als "wartet auf Bestätigung" hängen bleiben.
+  async function confirmClaim(claim: PendingClaim) {
+    await supabase.from("shifts").update({ employee_id: claim.employee_id }).eq("id", claim.shift_id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "confirmed", responded_at: new Date().toISOString() })
+      .eq("id", claim.id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "cancelled", responded_at: new Date().toISOString() })
+      .eq("shift_id", claim.shift_id)
+      .eq("status", "pending");
+    loadAll();
+  }
+
+  async function declineClaim(claimId: string) {
+    await supabase
+      .from("shift_claims")
+      .update({ status: "declined", responded_at: new Date().toISOString() })
+      .eq("id", claimId);
     loadAll();
   }
 
@@ -897,6 +1014,35 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                       className="ghost"
                       style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
                       onClick={() => declineSwap(s.id)}
+                    >
+                      Ablehnen
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pendingClaims.length > 0 && (
+            <div className="card">
+              <h3>Offene Schichten – Freiwillige</h3>
+              {pendingClaims.map((c) => (
+                <div className="shift-line" key={c.id}>
+                  <span className="tag">
+                    {c.shifts ? new Date(c.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+                  </span>
+                  <span>
+                    {c.claimant?.name ?? "?"} kann übernehmen
+                    {c.shifts ? ` (${c.shifts.shift_type === "frueh" ? "Früh" : "Spät"})` : ""}
+                  </span>
+                  <span className="row-actions">
+                    <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmClaim(c)}>
+                      Bestätigen
+                    </button>
+                    <button
+                      className="ghost"
+                      style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                      onClick={() => declineClaim(c.id)}
                     >
                       Ablehnen
                     </button>

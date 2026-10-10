@@ -12,12 +12,18 @@
 // Header: Authorization: Bearer <access_token der aufrufenden Person>
 //
 // Berechtigung je nach type:
-//   - 'swap_accepted' / 'availability_submitted' / 'shift_cancelled': jede
-//     angemeldete, aktive Person darf das auslösen (passiert automatisch nach
-//     eigener Aktion),
-//     `employeeIds` aus dem Body wird dabei IGNORIERT — Ziel sind serverseitig
-//     immer alle aktiven Admins, damit niemand über diesen Weg Benachrichtigungen
-//     an beliebige andere Mitarbeiter umleiten kann.
+//   - 'swap_accepted' / 'availability_submitted' / 'shift_claim_submitted':
+//     jede angemeldete, aktive Person darf das auslösen (passiert automatisch
+//     nach eigener Aktion), `employeeIds` aus dem Body wird dabei IGNORIERT —
+//     Ziel sind serverseitig immer alle aktiven Admins, damit niemand über
+//     diesen Weg Benachrichtigungen an beliebige andere Mitarbeiter umleiten
+//     kann.
+//   - 'shift_cancelled': ebenfalls von jeder angemeldeten, aktiven Person
+//     auslösbar, Ziel sind hier aber serverseitig ALLE aktiven Mitarbeiter
+//     (nicht nur Admins) — eine abgesagte Schicht wird leer angezeigt und
+//     jede:r Kolleg:in soll sie übernehmen können (Feedback: "sollen alle und
+//     nicht nur die Admin Rolle eine Push Benachrichtigung bekommen"), ohne
+//     die auslösende Person selbst zu benachrichtigen.
 //   - 'shift_published' / 'bake_plan_published' / 'announcement' / 'reminder':
 //     nur Admins, `employeeIds` aus dem Body legt die Ziel-Mitarbeiter fest.
 //
@@ -35,7 +41,9 @@ const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com";
 
 const ADMIN_ONLY_TYPES = new Set(["shift_published", "bake_plan_published", "announcement", "reminder"]);
-const EMPLOYEE_TRIGGERED_TYPES = new Set(["swap_accepted", "availability_submitted", "shift_cancelled"]);
+const EMPLOYEE_TRIGGERED_ADMIN_TYPES = new Set(["swap_accepted", "availability_submitted", "shift_claim_submitted"]);
+// 'shift_cancelled' ist bewusst kein ADMIN-Ziel: eine offene Schicht geht alle an.
+const EMPLOYEE_TRIGGERED_ALL_TYPES = new Set(["shift_cancelled"]);
 
 const TITLE_BY_TYPE: Record<string, string> = {
   shift_published: "Dienstplan veröffentlicht",
@@ -44,7 +52,8 @@ const TITLE_BY_TYPE: Record<string, string> = {
   swap_accepted: "Schichttausch wartet auf Bestätigung",
   availability_submitted: "Verfügbarkeit eingereicht",
   reminder: "Erinnerung",
-  shift_cancelled: "Schicht abgesagt"
+  shift_cancelled: "Schicht abgesagt",
+  shift_claim_submitted: "Übernahme angeboten"
 };
 
 const CORS_HEADERS = {
@@ -103,9 +112,12 @@ Deno.serve(async (req) => {
   }
 
   let targetIds: string[];
-  if (EMPLOYEE_TRIGGERED_TYPES.has(type)) {
+  if (EMPLOYEE_TRIGGERED_ADMIN_TYPES.has(type)) {
     const { data: admins } = await admin.from("employees").select("id").eq("role", "admin").eq("active", true);
     targetIds = (admins || []).map((a) => a.id);
+  } else if (EMPLOYEE_TRIGGERED_ALL_TYPES.has(type)) {
+    const { data: all } = await admin.from("employees").select("id").eq("active", true);
+    targetIds = (all || []).map((a) => a.id).filter((id) => id !== caller.id);
   } else if (ADMIN_ONLY_TYPES.has(type)) {
     if (caller.role !== "admin") {
       return jsonResponse({ error: "Nur Admins dürfen das" }, 403);
