@@ -12,7 +12,10 @@ type ShiftRow = {
   start_time: string;
   end_time: string;
 };
-type TodayShiftRow = ShiftRow & { employee_id: string; employees: { name: string; avatar_url: string | null } | null };
+type TodayShiftRow = ShiftRow & {
+  employee_id: string | null;
+  employees: { name: string; avatar_url: string | null } | null;
+};
 type BakeRow = {
   id: string;
   date: string;
@@ -65,6 +68,12 @@ export function Home({ employee }: { employee: Employee }) {
   const [sickReportFor, setSickReportFor] = useState<string | null>(null);
   const [sickReason, setSickReason] = useState("");
   const [sickSubmitting, setSickSubmitting] = useState(false);
+  // Feedback: "Der ich kann übernehmen Button soll auch zusätzlich hier
+  // direkt im Dashboard zu sehen sein wenn es um die Schicht heute geht" —
+  // dieselbe shift_claims-Logik wie in Kalender.tsx, hier nur für die
+  // "Heute im Dienst"-Liste statt den vollen Kalender.
+  const [myPendingClaims, setMyPendingClaims] = useState<Set<string>>(new Set());
+  const [claimSubmitting, setClaimSubmitting] = useState<string | null>(null);
 
   const today = toDateStr(new Date());
   const weekDays = Array.from({ length: 7 }, (_, i) => toDateStr(addDays(new Date(), i)));
@@ -85,6 +94,12 @@ export function Home({ employee }: { employee: Employee }) {
       .from("shift_swap_requests")
       .select("shift_id")
       .eq("requested_by", employee.id)
+      .eq("status", "pending");
+
+    const myPendingClaimsPromise = supabase
+      .from("shift_claims")
+      .select("shift_id")
+      .eq("employee_id", employee.id)
       .eq("status", "pending");
 
     const todayShiftsPromise = supabase
@@ -155,7 +170,8 @@ export function Home({ employee }: { employee: Employee }) {
       incomingSwapsRes,
       outgoingSwapsRes,
       colleaguesRes,
-      pendingSwapShiftIdsRes
+      pendingSwapShiftIdsRes,
+      myPendingClaimsRes
     ] = await Promise.all([
       shiftsPromise,
       todayShiftsPromise,
@@ -165,7 +181,8 @@ export function Home({ employee }: { employee: Employee }) {
       incomingSwapsPromise,
       outgoingSwapsPromise,
       colleaguesPromise,
-      pendingSwapShiftIdsPromise
+      pendingSwapShiftIdsPromise,
+      myPendingClaimsPromise
     ]);
 
     setShifts((shiftsRes.data as ShiftRow[]) || []);
@@ -194,6 +211,7 @@ export function Home({ employee }: { employee: Employee }) {
     setOutgoingSwaps((outgoingSwapsRes.data as unknown as SwapRow[]) || []);
     setColleagues(colleaguesRes.data || []);
     setSwapRequestedShiftIds(new Set((pendingSwapShiftIdsRes.data || []).map((r) => r.shift_id)));
+    setMyPendingClaims(new Set((myPendingClaimsRes.data || []).map((r) => r.shift_id)));
   }
 
   useEffect(() => {
@@ -307,6 +325,26 @@ export function Home({ employee }: { employee: Employee }) {
     setSickSubmitting(false);
   }
 
+  // Feedback: "Der ich kann übernehmen Button soll auch zusätzlich hier
+  // direkt im Dashboard zu sehen sein wenn es um die Schicht heute geht" —
+  // gleicher Ablauf wie claimShift() in Kalender.tsx (Migration 0035,
+  // shift_claims): Meldung legt nur einen Vorschlag an, der Admin bestätigt
+  // die Übernahme final.
+  async function claimShift(shift: TodayShiftRow) {
+    setClaimSubmitting(shift.id);
+    const { error } = await supabase.from("shift_claims").insert({ shift_id: shift.id, employee_id: employee.id });
+    if (!error) {
+      setMyPendingClaims((prev) => new Set(prev).add(shift.id));
+      await notifyAdmins(
+        "shift_claim_submitted",
+        `${employee.name} kann die offene Schicht übernehmen (${shiftLabel(shift.date, shift.shift_type)})`
+      );
+    } else {
+      alert(`Konnte nicht gemeldet werden: ${error.message}`);
+    }
+    setClaimSubmitting(null);
+  }
+
   return (
     <div>
       <h2>Hallo {employee.name.split(" ")[0]} 👋</h2>
@@ -343,16 +381,34 @@ export function Home({ employee }: { employee: Employee }) {
         <h3>Heute im Dienst</h3>
         {todayShifts.length === 0 && <p style={{ color: "var(--ink-soft)" }}>Heute ist niemand eingeteilt.</p>}
         {todayShifts.map((s) => (
-          <div className="shift-line" key={s.id}>
-            <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
-            <Avatar name={s.employees?.name ?? "?"} avatarUrl={s.employees?.avatar_url} size={28} />
-            <span>
-              {s.employees?.name ?? "–"}
-              {s.role_tag ? ` · ${s.role_tag}` : ""}
-            </span>
-            <span className="who">
-              {s.start_time}–{s.end_time}
-            </span>
+          <div key={s.id}>
+            <div className="shift-line">
+              <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
+              <Avatar name={s.employees?.name ?? "?"} avatarUrl={s.employees?.avatar_url} size={28} />
+              <span>
+                {s.employee_id === null ? "Offen" : s.employees?.name ?? "–"}
+                {s.role_tag ? ` · ${s.role_tag}` : ""}
+              </span>
+              <span className="who">
+                {s.start_time}–{s.end_time}
+              </span>
+            </div>
+            {s.employee_id === null && (
+              <p style={{ margin: "0 0 0.6rem" }}>
+                {myPendingClaims.has(s.id) ? (
+                  <span className="hint">Du hast dich gemeldet – wartet auf Bestätigung.</span>
+                ) : (
+                  <button
+                    className="ghost"
+                    style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                    disabled={claimSubmitting === s.id}
+                    onClick={() => claimShift(s)}
+                  >
+                    {claimSubmitting === s.id ? "Melde…" : "Ich kann übernehmen"}
+                  </button>
+                )}
+              </p>
+            )}
           </div>
         ))}
       </div>

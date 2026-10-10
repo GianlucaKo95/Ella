@@ -582,3 +582,8 @@ dann ein Button hin mit dem ich sagen kann, dass ich die Schicht übernehmen kan
 - Die Push-Benachrichtigung bei `shift_cancelled` bekommt jetzt zusätzlich einen `link`
   (`/kalender?date=…`), damit ein Antippen direkt zum Tag mit dem "Ich kann übernehmen"-Button
   springt — vorher hatte `notifyAdmins()` keinen `link`-Parameter.
+- **Nachtrag: auch in "Heute im Dienst" auf Home** (Feedback: "Der ich kann übernehmen Button soll
+  auch zusätzlich hier direkt im Dashboard zu sehen sein wenn es um die Schicht heute geht"):
+  dieselbe "Offen" + Button/Wartehinweis-Logik wie im Kalender, zusätzlich in der "Heute im
+  Dienst"-Liste auf Home.tsx (zeigt wie der Kalender auch unbesetzte veröffentlichte Schichten),
+  mit eigenem `myPendingClaims`-Vorlader für die heutigen Schichten statt für den ganzen Monat.
