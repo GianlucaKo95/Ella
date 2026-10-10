@@ -8,6 +8,11 @@ type BakeEntry = {
   quantity: number;
   cake_item_id: string;
   category: "kuchen" | "boden";
+  // Feedback: "Es gibt vereinzelt Kuchen, die in der Planung ein Notizfeld
+  // benötigen. Käse-Sahne-Torte, Blaubeer-Mascarpone (oder anderes Obst) und
+  // Veganer Kuchen mit Zimtstreusel" — muss hier sichtbar sein, sonst weiß
+  // die Back-Truppe nicht, welche Sorte gemeint ist.
+  note: string | null;
 };
 type CakeItem = {
   id: string;
@@ -44,7 +49,7 @@ export function Backen({ employee }: { employee: Employee }) {
     Promise.all([
       supabase
         .from("bake_plan_entries")
-        .select("id,date,quantity,cake_item_id,category")
+        .select("id,date,quantity,cake_item_id,category,note")
         .eq("bake_team_id", employee.bake_team_id)
         .eq("status", "published")
         .gte("date", todayStr)
@@ -89,7 +94,8 @@ export function Backen({ employee }: { employee: Employee }) {
           onClick={() => setExpandedId(expanded ? null : entry.id)}
         >
           <span>
-            {cake?.name ?? "—"} · {entry.quantity} {cake?.default_unit ?? ""}
+            {cake?.name ?? "—"}
+            {entry.note ? ` (${entry.note})` : ""} · {entry.quantity} {cake?.default_unit ?? ""}
           </span>
           <span style={{ color: "var(--ink-soft)" }}>{expanded ? "▲" : "▼"}</span>
         </button>

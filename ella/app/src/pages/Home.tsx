@@ -20,6 +20,7 @@ type BakeRow = {
   id: string;
   date: string;
   quantity: number;
+  note: string | null;
   cake_items: { name: string; default_unit: string } | null;
 };
 type Announcement = {
@@ -159,7 +160,7 @@ export function Home({ employee }: { employee: Employee }) {
     const bakesPromise = employee.bake_team_id
       ? supabase
           .from("bake_plan_entries")
-          .select("id,date,quantity,cake_items(name,default_unit)")
+          .select("id,date,quantity,note,cake_items(name,default_unit)")
           .eq("bake_team_id", employee.bake_team_id)
           .eq("status", "published")
           .gte("date", today)
@@ -730,7 +731,10 @@ export function Home({ employee }: { employee: Employee }) {
               <span className="tag">
                 {new Date(b.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}
               </span>
-              <span>{b.cake_items?.name}</span>
+              <span>
+                {b.cake_items?.name}
+                {b.note ? ` (${b.note})` : ""}
+              </span>
               <span className="who">
                 {b.quantity} {b.cake_items?.default_unit}
               </span>
