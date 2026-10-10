@@ -88,6 +88,11 @@ type BakeEntryRow = {
   bake_team_id: string | null;
   status: "draft" | "published";
   category: "kuchen" | "boden";
+  // Feedback: "Es gibt vereinzelt Kuchen, die in der Planung ein Notizfeld
+  // benötigen. Käse-Sahne-Torte, Blaubeer-Mascarpone (oder anderes Obst) und
+  // Veganer Kuchen mit Zimtstreusel" — die Spalte existiert in der DB schon
+  // seit Migration 0001, war aber nie an ein Eingabefeld angebunden.
+  note: string | null;
 };
 type BakeTeam = { id: string; name: string };
 type PendingSwap = {
@@ -1269,6 +1274,7 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                           <th>Menge</th>
                           <th>Truppe</th>
                           <th>Kategorie</th>
+                          <th>Notiz</th>
                           <th />
                         </tr>
                       </thead>
@@ -1336,6 +1342,15 @@ export function AdminPlanning({ employee }: { employee: Employee }) {
                                   <option value="kuchen">Kuchen</option>
                                   <option value="boden">Böden</option>
                                 </select>
+                              </td>
+                              <td data-label="Notiz">
+                                <input
+                                  type="text"
+                                  placeholder="z. B. Sorte"
+                                  value={b.note ?? ""}
+                                  style={{ width: "7rem" }}
+                                  onChange={(e) => updateBakeEntry(b.id, { note: e.target.value || null })}
+                                />
                               </td>
                               <td data-label="">
                                 <button className="ghost" style={{ padding: "0.3rem 0.55rem" }} onClick={() => deleteBakeEntry(b.id)}>✕</button>

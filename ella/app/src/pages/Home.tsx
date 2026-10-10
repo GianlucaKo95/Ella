@@ -12,11 +12,15 @@ type ShiftRow = {
   start_time: string;
   end_time: string;
 };
-type TodayShiftRow = ShiftRow & { employee_id: string; employees: { name: string; avatar_url: string | null } | null };
+type TodayShiftRow = ShiftRow & {
+  employee_id: string | null;
+  employees: { name: string; avatar_url: string | null } | null;
+};
 type BakeRow = {
   id: string;
   date: string;
   quantity: number;
+  note: string | null;
   cake_items: { name: string; default_unit: string } | null;
 };
 type Announcement = {
@@ -34,6 +38,27 @@ type SwapRow = {
   shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
   requested_by_employee: { name: string } | null;
   offered_to_employee: { name: string } | null;
+};
+// Feedback: "Können wir das, sollten Einträge dort vorhanden sein, und
+// genau so mit Tauschanfrage als Kachel im Home Screen implementieren for
+// Admins?" — dieselben zwei Admin-Planung-Karten ("Schichttausch-
+// Bestätigungen", "Offene Schichten – Freiwillige") zusätzlich direkt auf
+// Home, damit der Admin nicht extra in die Planung wechseln muss, um offene
+// Vorgänge zu bemerken. Gleiche Typen/Logik wie in AdminPlanning.tsx.
+type AdminPendingSwap = {
+  id: string;
+  shift_id: string;
+  offered_to: string;
+  requested_by_employee: { name: string } | null;
+  offered_to_employee: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
+};
+type AdminPendingClaim = {
+  id: string;
+  shift_id: string;
+  employee_id: string;
+  claimant: { name: string } | null;
+  shifts: { date: string; shift_type: "frueh" | "spaet" } | null;
 };
 
 export function Home({ employee }: { employee: Employee }) {
@@ -65,6 +90,14 @@ export function Home({ employee }: { employee: Employee }) {
   const [sickReportFor, setSickReportFor] = useState<string | null>(null);
   const [sickReason, setSickReason] = useState("");
   const [sickSubmitting, setSickSubmitting] = useState(false);
+  // Feedback: "Der ich kann übernehmen Button soll auch zusätzlich hier
+  // direkt im Dashboard zu sehen sein wenn es um die Schicht heute geht" —
+  // dieselbe shift_claims-Logik wie in Kalender.tsx, hier nur für die
+  // "Heute im Dienst"-Liste statt den vollen Kalender.
+  const [myPendingClaims, setMyPendingClaims] = useState<Set<string>>(new Set());
+  const [claimSubmitting, setClaimSubmitting] = useState<string | null>(null);
+  const [adminPendingSwaps, setAdminPendingSwaps] = useState<AdminPendingSwap[]>([]);
+  const [adminPendingClaims, setAdminPendingClaims] = useState<AdminPendingClaim[]>([]);
 
   const today = toDateStr(new Date());
   const weekDays = Array.from({ length: 7 }, (_, i) => toDateStr(addDays(new Date(), i)));
@@ -87,6 +120,33 @@ export function Home({ employee }: { employee: Employee }) {
       .eq("requested_by", employee.id)
       .eq("status", "pending");
 
+    const myPendingClaimsPromise = supabase
+      .from("shift_claims")
+      .select("shift_id")
+      .eq("employee_id", employee.id)
+      .eq("status", "pending");
+
+    // Admin-only: nur für Admins abgefragt, da RLS anderen Rollen ohnehin nur
+    // eigene Zeilen zeigen würde ("eigene oder Admin") — für eine
+    // Mitarbeiter-Session wäre das Ergebnis hier also irreführend (z. B. nur
+    // die eigene gerade bestätigte Tauschanfrage statt aller).
+    const adminPendingSwapsPromise =
+      employee.role === "admin"
+        ? supabase
+            .from("shift_swap_requests")
+            .select(
+              "id,shift_id,offered_to,shifts(date,shift_type),requested_by_employee:requested_by(name),offered_to_employee:offered_to(name)"
+            )
+            .eq("status", "accepted")
+        : Promise.resolve({ data: [] as unknown } as { data: unknown[] });
+    const adminPendingClaimsPromise =
+      employee.role === "admin"
+        ? supabase
+            .from("shift_claims")
+            .select("id,shift_id,employee_id,shifts(date,shift_type),claimant:employee_id(name)")
+            .eq("status", "pending")
+        : Promise.resolve({ data: [] as unknown } as { data: unknown[] });
+
     const todayShiftsPromise = supabase
       .from("shifts")
       // `employees!employee_id(...)`: `shifts` hat mit `employee_id` und
@@ -100,7 +160,7 @@ export function Home({ employee }: { employee: Employee }) {
     const bakesPromise = employee.bake_team_id
       ? supabase
           .from("bake_plan_entries")
-          .select("id,date,quantity,cake_items(name,default_unit)")
+          .select("id,date,quantity,note,cake_items(name,default_unit)")
           .eq("bake_team_id", employee.bake_team_id)
           .eq("status", "published")
           .gte("date", today)
@@ -155,7 +215,10 @@ export function Home({ employee }: { employee: Employee }) {
       incomingSwapsRes,
       outgoingSwapsRes,
       colleaguesRes,
-      pendingSwapShiftIdsRes
+      pendingSwapShiftIdsRes,
+      myPendingClaimsRes,
+      adminPendingSwapsRes,
+      adminPendingClaimsRes
     ] = await Promise.all([
       shiftsPromise,
       todayShiftsPromise,
@@ -165,7 +228,10 @@ export function Home({ employee }: { employee: Employee }) {
       incomingSwapsPromise,
       outgoingSwapsPromise,
       colleaguesPromise,
-      pendingSwapShiftIdsPromise
+      pendingSwapShiftIdsPromise,
+      myPendingClaimsPromise,
+      adminPendingSwapsPromise,
+      adminPendingClaimsPromise
     ]);
 
     setShifts((shiftsRes.data as ShiftRow[]) || []);
@@ -194,6 +260,9 @@ export function Home({ employee }: { employee: Employee }) {
     setOutgoingSwaps((outgoingSwapsRes.data as unknown as SwapRow[]) || []);
     setColleagues(colleaguesRes.data || []);
     setSwapRequestedShiftIds(new Set((pendingSwapShiftIdsRes.data || []).map((r) => r.shift_id)));
+    setMyPendingClaims(new Set((myPendingClaimsRes.data || []).map((r) => r.shift_id)));
+    setAdminPendingSwaps((adminPendingSwapsRes.data as unknown as AdminPendingSwap[]) || []);
+    setAdminPendingClaims((adminPendingClaimsRes.data as unknown as AdminPendingClaim[]) || []);
   }
 
   useEffect(() => {
@@ -307,6 +376,73 @@ export function Home({ employee }: { employee: Employee }) {
     setSickSubmitting(false);
   }
 
+  // Feedback: "Der ich kann übernehmen Button soll auch zusätzlich hier
+  // direkt im Dashboard zu sehen sein wenn es um die Schicht heute geht" —
+  // gleicher Ablauf wie claimShift() in Kalender.tsx (Migration 0035,
+  // shift_claims): Meldung legt nur einen Vorschlag an, der Admin bestätigt
+  // die Übernahme final.
+  async function claimShift(shift: TodayShiftRow) {
+    setClaimSubmitting(shift.id);
+    const { error } = await supabase.from("shift_claims").insert({ shift_id: shift.id, employee_id: employee.id });
+    if (!error) {
+      setMyPendingClaims((prev) => new Set(prev).add(shift.id));
+      await notifyAdmins(
+        "shift_claim_submitted",
+        `${employee.name} kann die offene Schicht übernehmen (${shiftLabel(shift.date, shift.shift_type)})`
+      );
+    } else {
+      alert(`Konnte nicht gemeldet werden: ${error.message}`);
+    }
+    setClaimSubmitting(null);
+  }
+
+  // Admin-only: gleiche Logik wie confirmSwap()/declineSwap() in
+  // AdminPlanning.tsx, hier für die Kachel auf Home. Nur diese Stelle und
+  // die in AdminPlanning.tsx schreiben ins Schichttausch-Protokoll.
+  async function confirmSwap(swap: AdminPendingSwap) {
+    await supabase.from("shifts").update({ employee_id: swap.offered_to }).eq("id", swap.shift_id);
+    await supabase.from("shift_swap_requests").update({ status: "confirmed" }).eq("id", swap.id);
+    if (swap.shifts) {
+      await supabase.from("shift_swap_log").insert({
+        shift_id: swap.shift_id,
+        date: swap.shifts.date,
+        change_summary: `${swap.requested_by_employee?.name ?? "?"} → ${swap.offered_to_employee?.name ?? "?"} (${
+          swap.shifts.shift_type === "frueh" ? "Früh" : "Spät"
+        })`
+      });
+    }
+    load();
+  }
+
+  async function declineSwap(swapId: string) {
+    await supabase.from("shift_swap_requests").update({ status: "declined" }).eq("id", swapId);
+    load();
+  }
+
+  // Admin-only: gleiche Logik wie confirmClaim()/declineClaim() in
+  // AdminPlanning.tsx.
+  async function confirmClaim(claim: AdminPendingClaim) {
+    await supabase.from("shifts").update({ employee_id: claim.employee_id }).eq("id", claim.shift_id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "confirmed", responded_at: new Date().toISOString() })
+      .eq("id", claim.id);
+    await supabase
+      .from("shift_claims")
+      .update({ status: "cancelled", responded_at: new Date().toISOString() })
+      .eq("shift_id", claim.shift_id)
+      .eq("status", "pending");
+    load();
+  }
+
+  async function declineClaim(claimId: string) {
+    await supabase
+      .from("shift_claims")
+      .update({ status: "declined", responded_at: new Date().toISOString() })
+      .eq("id", claimId);
+    load();
+  }
+
   return (
     <div>
       <h2>Hallo {employee.name.split(" ")[0]} 👋</h2>
@@ -339,20 +475,95 @@ export function Home({ employee }: { employee: Employee }) {
         </div>
       )}
 
+      {adminPendingSwaps.length > 0 && (
+        <div className="card">
+          <h3>Schichttausch-Bestätigungen</h3>
+          {adminPendingSwaps.map((s) => (
+            <div className="shift-line" key={s.id}>
+              <span className="tag">
+                {s.shifts ? new Date(s.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+              </span>
+              <span>
+                {s.requested_by_employee?.name} → {s.offered_to_employee?.name}
+              </span>
+              <span className="row-actions">
+                <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmSwap(s)}>
+                  Bestätigen
+                </button>
+                <button
+                  className="ghost"
+                  style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                  onClick={() => declineSwap(s.id)}
+                >
+                  Ablehnen
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adminPendingClaims.length > 0 && (
+        <div className="card">
+          <h3>Offene Schichten – Freiwillige</h3>
+          {adminPendingClaims.map((c) => (
+            <div className="shift-line" key={c.id}>
+              <span className="tag">
+                {c.shifts ? new Date(c.shifts.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : ""}
+              </span>
+              <span>
+                {c.claimant?.name ?? "?"} kann übernehmen
+                {c.shifts ? ` (${c.shifts.shift_type === "frueh" ? "Früh" : "Spät"})` : ""}
+              </span>
+              <span className="row-actions">
+                <button style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }} onClick={() => confirmClaim(c)}>
+                  Bestätigen
+                </button>
+                <button
+                  className="ghost"
+                  style={{ fontSize: "0.66rem", padding: "0.3rem 0.55rem" }}
+                  onClick={() => declineClaim(c.id)}
+                >
+                  Ablehnen
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="card">
         <h3>Heute im Dienst</h3>
         {todayShifts.length === 0 && <p style={{ color: "var(--ink-soft)" }}>Heute ist niemand eingeteilt.</p>}
         {todayShifts.map((s) => (
-          <div className="shift-line" key={s.id}>
-            <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
-            <Avatar name={s.employees?.name ?? "?"} avatarUrl={s.employees?.avatar_url} size={28} />
-            <span>
-              {s.employees?.name ?? "–"}
-              {s.role_tag ? ` · ${s.role_tag}` : ""}
-            </span>
-            <span className="who">
-              {s.start_time}–{s.end_time}
-            </span>
+          <div key={s.id}>
+            <div className="shift-line">
+              <span className="tag">{s.shift_type === "frueh" ? "Früh" : "Spät"}</span>
+              <Avatar name={s.employees?.name ?? "?"} avatarUrl={s.employees?.avatar_url} size={28} />
+              <span>
+                {s.employee_id === null ? "Offen" : s.employees?.name ?? "–"}
+                {s.role_tag ? ` · ${s.role_tag}` : ""}
+              </span>
+              <span className="who">
+                {s.start_time}–{s.end_time}
+              </span>
+            </div>
+            {s.employee_id === null && (
+              <p style={{ margin: "0 0 0.6rem" }}>
+                {myPendingClaims.has(s.id) ? (
+                  <span className="hint">Du hast dich gemeldet – wartet auf Bestätigung.</span>
+                ) : (
+                  <button
+                    className="ghost"
+                    style={{ fontSize: "0.68rem", padding: "0.35rem 0.6rem" }}
+                    disabled={claimSubmitting === s.id}
+                    onClick={() => claimShift(s)}
+                  >
+                    {claimSubmitting === s.id ? "Melde…" : "Ich kann übernehmen"}
+                  </button>
+                )}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -520,7 +731,10 @@ export function Home({ employee }: { employee: Employee }) {
               <span className="tag">
                 {new Date(b.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}
               </span>
-              <span>{b.cake_items?.name}</span>
+              <span>
+                {b.cake_items?.name}
+                {b.note ? ` (${b.note})` : ""}
+              </span>
               <span className="who">
                 {b.quantity} {b.cake_items?.default_unit}
               </span>
